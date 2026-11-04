@@ -6,13 +6,14 @@ import json
 from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, QDialog,
                                QDialogButtonBox)
 
-from . import cli, protocol
+from . import cli, protocol, selfupdate
 from .ranking import match_column, rank_rows
 from .widgets import PackageTable, details_html, key
 
@@ -1006,9 +1007,17 @@ class SettingsPage(Page):
         self.table.verticalHeader().hide()
         self.table.itemChanged.connect(self._changed)
         lay.addWidget(self.table, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        if selfupdate.available():
+            upd = QPushButton(QIcon.fromTheme("system-software-update"), "Check for Shelly-Qt updates…")
+            upd.setToolTip("Update this AppImage in place (downloads only what changed)")
+            upd.clicked.connect(lambda: self.main.check_for_updates())
+            row.addWidget(upd)
         b = QPushButton("Reload")
         b.clicked.connect(self.refresh)
-        lay.addWidget(b, 0, Qt.AlignmentFlag.AlignRight)
+        row.addWidget(b)
+        lay.addLayout(row)
         self._loading = False
         self._values: dict[str, str] = {}
 

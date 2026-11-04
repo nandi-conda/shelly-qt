@@ -1,6 +1,7 @@
 """Main window."""
 from __future__ import annotations
 
+import os
 import signal
 import sys
 from html import escape
@@ -9,10 +10,11 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QStackedWidget,
+                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
+                               QStackedWidget,
                                QStatusBar, QVBoxLayout, QWidget)
 
-from . import __version__, cli
+from . import __version__, cli, selfupdate
 from .dialogs import OperationDialog
 from .links import install_url_handler
 from .openfile import Target, targets_from_argv
@@ -88,6 +90,15 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
         self.busy_label = QLabel()
         self.statusBar().addPermanentWidget(self.busy_label)
+        # shown when the quiet startup check finds a newer AppImage
+        self.update_button = QPushButton(QIcon.fromTheme("software-update-available"), "Update available")
+        self.update_button.setFlat(True)
+        self.update_button.setToolTip("A newer Shelly-Qt AppImage is available. Click to update.")
+        self.update_button.clicked.connect(lambda: self.check_for_updates(update_known=True))
+        self.update_button.hide()
+        self.statusBar().addPermanentWidget(self.update_button)
+        self.update_dialog: selfupdate.UpdateDialog | None = None
+        self._update_check: selfupdate.UpdateCheck | None = None
 
         refresh = QAction("Refresh", self)
         refresh.setShortcut(QKeySequence.StandardKey.Refresh)
@@ -101,6 +112,12 @@ class MainWindow(QMainWindow):
         about.setShortcut("F1")
         about.triggered.connect(self.about)
         self.addAction(about)
+        self.update_action = QAction(QIcon.fromTheme("system-software-update"), "Check for updates…", self)
+        self.update_action.triggered.connect(lambda: self.check_for_updates())
+        self.update_action.setVisible(selfupdate.available())
+        self.addAction(self.update_action)
+        if selfupdate.available() and not os.environ.get("SHELLY_QT_NO_UPDATE_CHECK"):
+            QTimer.singleShot(3000, self._quiet_update_check)
 
         self.nav.setCurrentRow(0)
         # background update check so the sidebar badge is populated
@@ -238,6 +255,42 @@ class MainWindow(QMainWindow):
         box.setTextFormat(Qt.TextFormat.RichText)
         box.button(QMessageBox.StandardButton.Yes).setText("Install")
         return box.exec() == QMessageBox.StandardButton.Yes
+
+    # ---- AppImage self-update ----------------------------------------------
+    def check_for_updates(self, update_known: bool = False) -> None:
+        """Open the update dialog (only meaningful when running from an AppImage)."""
+        path = selfupdate.appimage_path()
+        if not path or not selfupdate.available():
+            QMessageBox.information(self, "Check for updates",
+                                    "Shelly-Qt updates itself only when run from its AppImage. "
+                                    "Update this copy the way you installed it.")
+            return
+        if self.update_dialog and self.update_dialog.isVisible():
+            self.update_dialog.raise_()
+            self.update_dialog.activateWindow()
+            return
+        self.update_dialog = selfupdate.UpdateDialog(path, self, update_known=update_known)
+        self.update_dialog.setWindowIcon(self.windowIcon())
+        self.update_dialog.finished.connect(self._update_dialog_closed)
+        self.update_dialog.show()
+
+    def _update_dialog_closed(self, *_):
+        d = self.update_dialog
+        if d and d.state in ("current", "updated"):
+            self.update_button.hide()
+
+    def _quiet_update_check(self) -> None:
+        path = selfupdate.appimage_path()
+        if not path:
+            return
+        self._update_check = selfupdate.UpdateCheck(path, self)
+        self._update_check.done.connect(self._quiet_update_done)
+        self._update_check.start()
+
+    def _quiet_update_done(self, avail: bool, err: str) -> None:
+        if avail:
+            self.update_button.show()
+            self.status("A newer Shelly-Qt is available")
 
     def about(self) -> None:
         QMessageBox.about(self, "About Shelly-Qt",

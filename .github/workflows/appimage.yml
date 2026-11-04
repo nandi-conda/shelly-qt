@@ -56,12 +56,13 @@ jobs:
           echo "file=${APP_NAME}-${version}-${ARCH}.AppImage" >> "$GITHUB_OUTPUT"
           echo "updinfo=gh-releases-zsync|$owner|$repo|$channel|${APP_NAME}-*-${ARCH}.AppImage.zsync" >> "$GITHUB_OUTPUT"
 
-      # zsync for the .zsync file, appstream for metainfo validation, GL/X libs
+      # zsync for the .zsync file, squashfs-tools to unpack appimageupdatetool,
+      # appstream for metainfo validation, GL/X libs
       # because the AppImage takes the GPU stack from the host.
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends zsync desktop-file-utils appstream \
+          sudo apt-get install -y --no-install-recommends zsync squashfs-tools desktop-file-utils appstream \
             libopengl0 libgl1 libegl1 libglx0 xvfb
 
       - uses: prefix-dev/setup-pixi@v0.8.1
@@ -91,6 +92,10 @@ jobs:
           readelf -p .upd_info "$FILE"
           head -n 8 "$FILE.zsync"
           "./$FILE" --version
+          # The bundled updater runs and can read our update info.
+          tool=build/${APP_NAME}.AppDir/usr/libexec/appimageupdatetool
+          LD_LIBRARY_PATH=$tool/lib "$tool/bin/appimageupdatetool" --version
+          LD_LIBRARY_PATH=$tool/lib "$tool/bin/appimageupdatetool" --describe "$FILE"
           # Start the real GUI on X11 against the fake CLI; still running after 10 s = OK.
           set +e
           SHELLY_BIN="python3 $PWD/tests/fake_shelly.py" SHELLY_ELEVATE="" \

@@ -75,6 +75,14 @@ Each AppImage embeds `gh-releases-zsync` update info and ships with a `.zsync` f
 `appimageupdatetool Shelly-Qt-*.AppImage` (or AppImageUpdate, AppImageLauncher, Gear Lever)
 downloads only the changed blocks of a newer release.
 
+The AppImage can also update itself. It bundles `appimageupdatetool`
+(`packaging/appimage/bundle-updater.sh`, about 6 MB), checks quietly a few seconds after
+start and shows **Update available** in the status bar when a newer build is out. Click it,
+or use **Check for Shelly-Qt updates…** on the Settings page, to download the delta, replace
+the AppImage in place (same path, so launchers keep working) and restart into it. The folder
+holding the AppImage must be writable. Set `SHELLY_QT_NO_UPDATE_CHECK=1` to skip the startup
+check. None of this appears when Shelly-Qt runs from source or a distro package.
+
 Build one locally with `just appimage` (output in `dist/`); the packaging scripts live in
 `packaging/appimage/`.
 

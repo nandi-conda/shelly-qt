@@ -87,6 +87,11 @@ done
 sed "s/@PY_MODULE@/$PY_MODULE/" "$here/AppRun" > "$appdir/AppRun"
 chmod +x "$appdir/AppRun"
 
+# 5b. appimageupdatetool, for the app's "Check for updates" (see selfupdate.py).
+if [[ ${NO_UPDATER:-0} != 1 ]]; then
+  "$here/bundle-updater.sh" "$appdir"
+fi
+
 # 6. Fail early if the bundled interpreter cannot import the app.
 env -i HOME="$HOME" QT_QPA_PLATFORM=offscreen "$py" -I -c "import $PY_MODULE.app; $(for m in $KEEP_QT; do printf 'import PySide6.%s;' "$m"; done)"
 
