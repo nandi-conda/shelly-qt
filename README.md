@@ -48,11 +48,35 @@ just demo           # start it against tests/fake_shelly.py (no Arch needed)
 just test           # headless test suite
 just screenshots    # regenerate screenshots/
 just install-desktop  # add a shelly-qt launcher, .desktop entry and icon under ~/.local
+just appimage      # build dist/Shelly-Qt-<version>-<arch>.AppImage (+ .zsync)
 just icon          # regenerate shelly_qt/icons/ (SVG + PNG sizes) from scripts/make_icon.py
 ```
 
 `just` with no arguments lists every recipe. Without pixi, `pip install .` then `shelly-qt`
 works too.
+
+## AppImage
+
+Tagged releases (`v*`) and manual runs of the **AppImage** workflow publish
+`Shelly-Qt-<version>-<arch>.AppImage` for x86_64 and aarch64 on the
+[Releases](https://github.com/nandi-conda/shelly-qt/releases) page. Tags go to that release
+(update channel `latest`); manual runs replace the rolling `continuous` prerelease.
+
+```bash
+chmod +x Shelly-Qt-*-x86_64.AppImage
+./Shelly-Qt-*-x86_64.AppImage
+```
+
+**The `shelly` CLI is not bundled.** The AppImage only contains the GUI (Python, PySide6/Qt);
+it runs the host's `shelly` (and `pkexec`, `flatpak`), so install Shelly on the system first.
+The GPU stack (libGL/libEGL) also comes from the host.
+
+Each AppImage embeds `gh-releases-zsync` update info and ships with a `.zsync` file, so
+`appimageupdatetool Shelly-Qt-*.AppImage` (or AppImageUpdate, AppImageLauncher, Gear Lever)
+downloads only the changed blocks of a newer release.
+
+Build one locally with `just appimage` (output in `dist/`); the packaging scripts live in
+`packaging/appimage/`.
 
 ## Opening files
 

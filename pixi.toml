@@ -22,5 +22,11 @@ pytest = "*"
 [feature.test.tasks]
 test = { cmd = "pytest -q", env = { QT_QPA_PLATFORM = "offscreen" } }
 
+# Shipped in the AppImage: runtime deps only, plus pip for the build script.
+[feature.appimage.dependencies]
+pip = "*"
+xcb-util-cursor = "*"   # Qt's xcb plugin dlopens libxcb-cursor; don't rely on the host
+
 [environments]
 default = { features = ["test"], solve-group = "default" }
+appimage = { features = ["appimage"], solve-group = "default" }

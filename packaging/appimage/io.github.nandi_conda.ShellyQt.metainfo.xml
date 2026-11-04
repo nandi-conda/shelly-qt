@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.nandi_conda.ShellyQt</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Shelly-Qt</name>
+  <summary>Qt front end for the Shelly Arch Linux package manager</summary>
+  <description>
+    <p>
+      Shelly-Qt is a PySide6 desktop front end for Shelly (Shelly-ALPM). It searches and manages
+      repo packages, the AUR, Flatpak apps, AppImages and prefix.dev packages by driving the
+      shelly command line tool, which must be installed on the system.
+    </p>
+  </description>
+  <developer id="io.github.nandi_conda">
+    <name>nandi-conda</name>
+  </developer>
+  <launchable type="desktop-id">shelly-qt.desktop</launchable>
+  <url type="homepage">https://github.com/nandi-conda/shelly-qt</url>
+  <provides>
+    <binary>shelly-qt</binary>
+  </provides>
+  <categories>
+    <category>System</category>
+    <category>PackageManager</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>

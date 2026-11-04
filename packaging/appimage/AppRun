@@ -1,0 +1,22 @@
+#!/bin/sh
+# AppRun for Shelly-Qt bundled from its pixi (conda-forge) environment.
+# build-appdir.sh replaces @PY_MODULE@.
+set -e
+HERE=${APPDIR:-$(dirname "$(readlink -f "$0")")}
+U="$HERE/usr"
+
+# The env was built at another prefix; point everything that bakes in a path
+# at the bundled copy instead.
+# PATH is left alone on purpose: Shelly-Qt runs the host's `shelly`, pkexec,
+# flatpak etc., and the bundled env's bin/ must not shadow them.
+export PYTHONNOUSERSITE=1
+unset PYTHONHOME PYTHONPATH
+export QT_PLUGIN_PATH="$U/lib/qt6/plugins"
+export QML_IMPORT_PATH="$U/lib/qt6/qml"
+export QML2_IMPORT_PATH="$QML_IMPORT_PATH"
+[ -d "$U/etc/fonts" ] && export FONTCONFIG_PATH="$U/etc/fonts" FONTCONFIG_FILE="$U/etc/fonts/fonts.conf"
+[ -d "$U/share/X11/xkb" ] && export XKB_CONFIG_ROOT="$U/share/X11/xkb" QT_XKB_CONFIG_ROOT="$U/share/X11/xkb"
+[ -f "$U/ssl/cacert.pem" ] && export SSL_CERT_FILE="$U/ssl/cacert.pem"
+export XDG_DATA_DIRS="$U/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+exec "$U/bin/python" -m @PY_MODULE@ "$@"

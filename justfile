@@ -46,7 +46,17 @@ set-default:
 icon:
     QT_QPA_PLATFORM=offscreen pixi run python scripts/make_icon.py
 
-# Remove the pixi environment and caches
+# Build dist/Shelly-Qt-<version>-<arch>.AppImage (+ .zsync) from the pixi `appimage` env
+appimage version=`git describe --tags --always --dirty 2>/dev/null | sed 's/^v//'`:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arch=${ARCH:-$(uname -m)}
+    QT_QPA_PLATFORM=offscreen packaging/appimage/build-appdir.sh build/Shelly-Qt.AppDir
+    ARCH=$arch packaging/appimage/make-appimage.sh build/Shelly-Qt.AppDir \
+        "dist/Shelly-Qt-{{version}}-$arch.AppImage" \
+        "gh-releases-zsync|nandi-conda|shelly-qt|latest|Shelly-Qt-*-$arch.AppImage.zsync"
+
+# Remove the pixi environment, caches and AppImage build output
 clean:
-    rm -rf .pixi .pytest_cache
+    rm -rf .pixi .pytest_cache build dist
     find . -name __pycache__ -prune -exec rm -rf {} +

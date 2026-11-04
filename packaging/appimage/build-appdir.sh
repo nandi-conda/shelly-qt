@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Build an AppDir for Shelly-Qt from its pixi `appimage` environment.
+# Adapted from the appimage-ci skill's pyside-pixi example.
+#
+# Usage: build-appdir.sh <out AppDir>
+#
+# Assumes (adjust the variables below):
+#   - pixi.toml has an environment ($PIXI_ENV) with python, pyside6 and pip,
+#     and no test-only deps. For example:
+#
+#       [feature.appimage.dependencies]
+#       pip = "*"
+#       [environments]
+#       appimage = { features = ["appimage"], solve-group = "default" }
+#
+#   - the app is a pip-installable project in the repo root, run with
+#     `python -m $PY_MODULE`.
+#   - a .desktop file and an icon exist in the repo.
+#
+# conda-forge binaries target an old glibc (2.17/2.28), so the result runs on
+# most distros regardless of the CI runner's age.
+set -euo pipefail
+
+appdir=${1:?out AppDir required}
+
+APP_ID=${APP_ID:-shelly-qt}
+PY_MODULE=${PY_MODULE:-shelly_qt}
+PY_DIST=${PY_DIST:-shelly-qt}               # pip distribution name
+PIXI_ENV=${PIXI_ENV:-appimage}
+DESKTOP_SRC=${DESKTOP_SRC:-shelly-qt.desktop}
+ICON_SRC=${ICON_SRC:-shelly_qt/icons/shelly-qt.svg}
+ICON_PNG=${ICON_PNG:-shelly_qt/icons/shelly-qt-256.png}
+KEEP_QT=${KEEP_QT:-QtNetwork QtDBus QtSvg}    # PySide6 modules beyond Core/Gui/Widgets
+METAINFO_ID=${METAINFO_ID:-io.github.nandi_conda.ShellyQt}   # AppStream id (reverse DNS)
+METAINFO_SRC=${METAINFO_SRC:-packaging/appimage/$METAINFO_ID.metainfo.xml}
+here=$(cd "$(dirname "$0")" && pwd)
+appdir=$(realpath -m "$appdir")
+cd "$here/../.."   # repo root
+
+rm -rf "$appdir"
+mkdir -p "$appdir/usr"
+
+# 1. Solve and install the environment from the lock file.
+pixi install ${PIXI_LOCKED:+--locked} -e "$PIXI_ENV"
+env_prefix=${PIXI_ENV_PREFIX:-$PWD/.pixi/envs/$PIXI_ENV}
+[[ -x $env_prefix/bin/python ]] || { echo "error: no python in $env_prefix" >&2; exit 1; }
+
+# 2. Copy it into the AppDir (dereference nothing; keep relative symlinks).
+cp -a "$env_prefix/." "$appdir/usr/"
+py="$appdir/usr/bin/python"
+
+# 3. Replace any editable install of the app with a real one.
+"$py" -m pip uninstall -y "$PY_DIST" >/dev/null 2>&1 || true
+"$py" -m pip install --no-deps --no-compile --no-warn-script-location .
+
+# 4. Trim what an end user never needs.
+rm -rf "$appdir/usr/conda-meta" "$appdir/usr/include" \
+       "$appdir/usr/share/doc" "$appdir/usr/share/man" "$appdir/usr/share/info" \
+       "$appdir/usr/lib/cmake" "$appdir/usr/lib/pkgconfig" "$appdir/usr/share/pkgconfig"
+find "$appdir/usr" -name '*.a' -delete
+find "$appdir/usr" -name '__pycache__' -type d -prune -exec rm -rf {} +
+# Qt tooling that ships with qt6-main but is not needed at run time.
+rm -f "$appdir"/usr/bin/{designer,linguist,assistant,qmlls,qmllint,qmlformat,lupdate,lrelease} 2>/dev/null || true
+"$py" -m pip uninstall -y pip >/dev/null 2>&1 || true
+# Drop unused Qt modules/plugins and every library nothing links to.
+# shellcheck disable=SC2086
+"$py" "$here/trim.py" "$appdir" $KEEP_QT
+
+# 5. Desktop integration and launcher.
+desktop_name=$APP_ID.desktop
+icon_name=$(sed -n 's/^Icon=//p' "$DESKTOP_SRC" | head -n1)
+install -Dm644 "$DESKTOP_SRC" "$appdir/usr/share/applications/$desktop_name"
+install -Dm644 "$DESKTOP_SRC" "$appdir/$desktop_name"
+# Root icon and .DirIcon must be PNG (appimagetool rejects an SVG .DirIcon);
+# the SVG goes in the hicolor theme.
+install -Dm644 "$ICON_PNG" "$appdir/$icon_name.png"
+ln -sf "$icon_name.png" "$appdir/.DirIcon"
+install -Dm644 "$ICON_SRC" "$appdir/usr/share/icons/hicolor/scalable/apps/$icon_name.svg"
+# Raster sizes too, for desktops that ignore SVG icons.
+for png in "$(dirname "$ICON_SRC")/$icon_name"-*.png; do
+  [[ -f $png ]] || continue
+  s=${png##*-}; s=${s%.png}
+  install -Dm644 "$png" "$appdir/usr/share/icons/hicolor/${s}x${s}/apps/$icon_name.png"
+done
+[[ -f $METAINFO_SRC ]] && install -Dm644 "$METAINFO_SRC" "$appdir/usr/share/metainfo/$METAINFO_ID.metainfo.xml"
+
+sed "s/@PY_MODULE@/$PY_MODULE/" "$here/AppRun" > "$appdir/AppRun"
+chmod +x "$appdir/AppRun"
+
+# 6. Fail early if the bundled interpreter cannot import the app.
+env -i HOME="$HOME" QT_QPA_PLATFORM=offscreen "$py" -I -c "import $PY_MODULE.app; $(for m in $KEEP_QT; do printf 'import PySide6.%s;' "$m"; done)"
+
+du -sh "$appdir"

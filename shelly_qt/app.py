@@ -270,6 +270,9 @@ def install_sigint_handler(app: QApplication) -> QTimer:
 
 
 def main() -> int:
+    if "--version" in sys.argv[1:]:
+        print(f"shelly-qt {__version__}")
+        return 0
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
     if desktop_entry_installed("shelly-qt"):

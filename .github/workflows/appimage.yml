@@ -1,0 +1,134 @@
+# Build Shelly-Qt AppImages (x86_64 + aarch64) with embedded zsync update info.
+#
+# Tag `v*`           -> publishes to that tag's release; installed copies follow `latest`.
+# Manual dispatch    -> publishes to the rolling `continuous` prerelease; copies follow `continuous`.
+#
+# Packaging lives in packaging/appimage/ (based on the appimage-ci skill). Local build: `just appimage`.
+name: AppImage
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: Shelly-Qt          # asset prefix: Shelly-Qt-<version>-<arch>.AppImage
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out channel and version
+        id: meta
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            version=${GITHUB_REF_NAME#v}
+            channel=latest
+          else
+            version=$(git describe --tags --always | sed 's/^v//')
+            channel=continuous
+          fi
+          owner=${GITHUB_REPOSITORY%%/*}
+          repo=${GITHUB_REPOSITORY#*/}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "file=${APP_NAME}-${version}-${ARCH}.AppImage" >> "$GITHUB_OUTPUT"
+          echo "updinfo=gh-releases-zsync|$owner|$repo|$channel|${APP_NAME}-*-${ARCH}.AppImage.zsync" >> "$GITHUB_OUTPUT"
+
+      # zsync for the .zsync file, appstream for metainfo validation, GL/X libs
+      # because the AppImage takes the GPU stack from the host.
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsync desktop-file-utils appstream \
+            libopengl0 libgl1 libegl1 libglx0 xvfb
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: appimage
+          locked: true
+          cache: true
+
+      - name: Build AppDir
+        run: packaging/appimage/build-appdir.sh build/${APP_NAME}.AppDir
+        env:
+          PIXI_LOCKED: 1
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Build AppImage
+        run: |
+          packaging/appimage/make-appimage.sh \
+            build/${APP_NAME}.AppDir \
+            "dist/${{ steps.meta.outputs.file }}" \
+            "${{ steps.meta.outputs.updinfo }}"
+
+      - name: Smoke test
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          FILE: dist/${{ steps.meta.outputs.file }}
+        run: |
+          readelf -p .upd_info "$FILE"
+          head -n 8 "$FILE.zsync"
+          "./$FILE" --version
+          # Start the real GUI on X11 against the fake CLI; still running after 10 s = OK.
+          set +e
+          SHELLY_BIN="python3 $PWD/tests/fake_shelly.py" SHELLY_ELEVATE="" \
+            timeout 10 xvfb-run -a "./$FILE"
+          rc=$?
+          [ $rc -eq 124 ] || { echo "AppImage exited early with $rc"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            tag=$GITHUB_REF_NAME
+            gh release view "$tag" >/dev/null 2>&1 \
+              || gh release create "$tag" --title "Shelly-Qt $tag" --generate-notes --verify-tag
+          else
+            tag=continuous
+            # Move the tag to this commit and drop old assets so no stale
+            # .zsync points at an AppImage that no longer exists.
+            gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$tag" --prerelease --target "$GITHUB_SHA" \
+              --title "Continuous build" \
+              --notes "Rolling build of ${GITHUB_SHA::7}. Installed copies update with AppImageUpdate."
+          fi
+          gh release upload "$tag" dist/*.AppImage dist/*.AppImage.zsync --clobber
