@@ -242,3 +242,24 @@ def test_aur_flatpak_appimage_menus(win, answers):
         ["update", "flatpak", "org.gimp.GIMP"],
         ["upgrade", "appimage"]]
     finish(ops)
+
+
+def test_real_right_click_opens_menu_on_every_updates_tab(win):
+    """Send an actual context-menu event, not just build the menu."""
+    from PySide6.QtGui import QContextMenuEvent
+    up = updates_loaded(win)
+    for t in (up.pkgs, up.aurt, up.flatt):
+        up.tabs.setCurrentWidget(t)
+        vp = t.view.viewport()
+        pos = t.view.visualRect(t.proxy.index(0, 0)).center()
+        seen = {}
+
+        def grab(seen=seen):
+            m = QApplication.activePopupWidget()
+            seen["texts"] = [a.text() for a in m.actions()] if m else None
+            if m:
+                m.close()
+        QTimer.singleShot(100, grab)
+        QApplication.sendEvent(vp, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, vp.mapToGlobal(pos)))
+        wait_until(lambda: "texts" in seen)
+        assert seen["texts"] and seen["texts"][-1].startswith("Remove")
