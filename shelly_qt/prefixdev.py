@@ -73,8 +73,12 @@ class Client(QObject):
     # ---- API ---------------------------------------------------------------
     def search(self, text: str, done: Done, limit: int = 50, fallback: bool = True) -> None:
         """Live search; on a missing server, ask prefix.dev directly (done gets offline=True rows)."""
-        if self._search_reply is not None and self._search_reply.isRunning():
-            self._search_reply.abort()
+        try:
+            if self._search_reply is not None and self._search_reply.isRunning():
+                self._search_reply.abort()  # a newer query supersedes it
+        except RuntimeError:  # already finished and deleted
+            pass
+        self._search_reply = None
 
         def via_server(res, err):
             if err is None:
