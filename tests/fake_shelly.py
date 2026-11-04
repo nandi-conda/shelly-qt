@@ -56,7 +56,11 @@ elif args[:1] == ["-Ssdi"]:
 elif args == ["-P"]:
     frame({"Packages": [{"Name": "firefox", "CurrentVersion": "133.0-1", "NewVersion": "134.0-1",
                          "Repository": "extra", "DownloadSize": 70_000_000, "SizeDifference": 1_200_000}],
-           "Aur": [{"Name": "yay", "Version": "12.4.1-1", "NewVersion": "12.4.2-1"}], "Flatpak": []})
+           "Aur": [{"Name": "yay", "Version": "12.4.1-1", "NewVersion": "12.4.2-1"}],
+           "Flatpak": [{"Name": "GIMP", "Id": "org.gimp.GIMP", "Version": "2.10.38", "NewVersion": "3.0.0",
+                        "Branch": "stable", "Remote": "flathub"},
+                       {"Name": "Krita", "Id": "org.kde.krita", "Version": "5.2.6", "NewVersion": "5.2.9",
+                        "Branch": "stable", "Remote": "flathub"}]})
 elif args[:2] == ["list", "aur"]:
     frame(AUR[:1])
 elif args[:2] == ["search", "aur"]:
@@ -81,7 +85,7 @@ elif args[:2] == ["config", "list"]:
            "DisableFlatpakUpdateCheck": False, "NativePackageBackend": "libalpm"})
 elif args[:2] == ["config", "set"]:
     frame({"$kind": "alpm.info", "EventType": "InformationalOutput", "Message": "saved"})
-elif args[:1] in (["install"], ["remove"], ["upgrade"], ["sync"], ["purify"], ["utility"]):
+elif args[:1] in (["install"], ["remove"], ["upgrade"], ["update"], ["sync"], ["purify"], ["utility"]):
     frame({"$kind": "alpm.info", "EventType": "TransactionStart", "Message": f"Starting: {cmd}"})
     if args[:2] == ["install", "aur"]:
         frame({"$kind": "q.pkgbuilddiff", "QuestionId": "p1", "PackageName": args[2],

@@ -43,7 +43,7 @@ def test_pages_load(win):
     wait_until(lambda: len(browse.table.model.rows) == 5)
     win.nav.setCurrentRow(1)
     wait_until(lambda: len(win.pages[1].table.model.rows) == 3)
-    wait_until(lambda: win.nav.item(2).text() == "Updates (2)")
+    wait_until(lambda: win.nav.item(2).text() == "Updates (4)")
     for i in range(3, 8):
         win.nav.setCurrentRow(i)
     wait_until(lambda: len(win.pages[3].installed.model.rows) == 1)
@@ -86,3 +86,36 @@ def test_declined_aur_build_fails(win, monkeypatch):
     wait_until(lambda: d.exit_code is not None)
     assert d.exit_code == 1
     assert "Build declined." in d.status.text()
+
+
+def test_flatpak_update_context_menu(win):
+    page = win.pages[2]
+    win.nav.setCurrentRow(2)
+    wait_until(lambda: len(page.flatt.model.rows) == 2)
+    view = page.flatt.view
+    assert view.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+    assert page.flatpak_menu(view.viewport().rect().bottomRight()) is None  # empty area
+    pos = view.visualRect(page.flatt.proxy.index(0, 0)).center()
+    menu = page.flatpak_menu(pos)
+    acts = menu.actions()
+    assert [a.text() for a in acts] == ["Update GIMP"]
+    acts[0].trigger()
+    d = win.ops[-1]
+    assert d.op.args == ["update", "flatpak", "org.gimp.GIMP"]
+    wait_until(lambda: d.exit_code is not None)
+    assert d.exit_code == 0
+
+
+def test_flatpak_update_context_menu_multi(win):
+    page = win.pages[2]
+    win.nav.setCurrentRow(2)
+    wait_until(lambda: len(page.flatt.model.rows) == 2)
+    view = page.flatt.view
+    view.selectAll()
+    menu = page.flatpak_menu(view.visualRect(page.flatt.proxy.index(1, 0)).center())
+    assert [a.text() for a in menu.actions()] == ["Update 2 Flatpaks"]
+    n = len(win.ops)
+    menu.actions()[0].trigger()
+    assert sorted(d.op.args[2] for d in win.ops[n:]) == ["org.gimp.GIMP", "org.kde.krita"]
+    for d in win.ops[n:]:
+        wait_until(lambda d=d: d.exit_code is not None)

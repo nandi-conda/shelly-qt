@@ -5,12 +5,12 @@ import datetime as dt
 import json
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, QDialog,
-                               QDialogButtonBox)
+                               QDialogButtonBox, QMenu)
 
 from . import cli, protocol
 from .widgets import PackageTable, details_html, key
@@ -268,6 +268,34 @@ class UpdatesPage(Page):
         self.flatt.current_changed.connect(lambda r: r and self.flatt.detail.setHtml(details_html(
             r.get("Name", ""), [("Id", r.get("Id")), ("Ref", r.get("FullRef")),
                                 ("Permissions", r.get("Permissions"))], r.get("Summary", ""))))
+        self.flatt.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.flatt.view.customContextMenuRequested.connect(
+            lambda pos: (m := self.flatpak_menu(pos)) and m.exec(self.flatt.view.viewport().mapToGlobal(pos)))
+
+    def flatpak_menu(self, pos) -> QMenu | None:
+        """Context menu for the Flatpak updates table at viewport position ``pos``."""
+        view = self.flatt.view
+        idx = view.indexAt(pos)
+        if not idx.isValid():
+            return None
+        if not view.selectionModel().isRowSelected(idx.row(), idx.parent()):
+            view.selectRow(idx.row())
+        view.selectionModel().setCurrentIndex(idx, QItemSelectionModel.SelectionFlag.NoUpdate)
+        rows = self.flatt.targets()
+        if not rows:
+            return None
+        menu = QMenu(view)
+        label = (f"Update {rows[0].get('Name') or rows[0].get('Id')}" if len(rows) == 1
+                 else f"Update {len(rows)} Flatpaks")
+        menu.addAction(label, lambda: self.update_flatpaks(rows))
+        return menu
+
+    def update_flatpaks(self, rows: list[dict]) -> None:
+        for r in rows:
+            target = r.get("Id") or r.get("Name")
+            if target:
+                self.main.run_op(f"Updating {r.get('Name') or target}", ["update", "flatpak", target],
+                                 True, self.refresh)
 
     def refresh(self) -> None:
         self.main.busy("Checking for updates…")

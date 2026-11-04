@@ -11,7 +11,7 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 |---|---|---|
 | Browse | All repo packages, filter, details, install | `-Ssv`, `-Ssdi`, `install standard` |
 | Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs) | `-Ls`, `remove standard` |
-| Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
+| Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all, right-click a Flatpak to update just it | `-P`, `sync --force`, `upgrade all`, `update flatpak <id>` |
 | AUR | Search, PKGBUILD preview, build+install, installed list, remove | `search aur`, `list aur`, `install/remove aur` |
 | Flatpak | Installed apps, Flathub search, install (system/user), remove, update | `-Lf`, `search flatpak`, `install/remove flatpak` |
 | AppImage | List, check/upgrade, install from file, remove | `list appimage`, `list-updates appimage`, … |
