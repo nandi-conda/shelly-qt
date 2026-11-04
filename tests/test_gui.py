@@ -119,3 +119,14 @@ def test_flatpak_update_context_menu_multi(win):
     assert sorted(d.op.args[2] for d in win.ops[n:]) == ["org.gimp.GIMP", "org.kde.krita"]
     for d in win.ops[n:]:
         wait_until(lambda d=d: d.exit_code is not None)
+
+
+def test_operation_window_is_standalone(win, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
+                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+    d = win.run_op("x", ["install", "standard", "zed"], True)
+    assert d.parent() is None
+    assert d.isWindow() and not d.isModal()
+    assert d.windowModality() == Qt.WindowModality.NonModal
+    wait_until(lambda: d.exit_code is not None)
+    d.close()

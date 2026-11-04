@@ -168,6 +168,13 @@ class PkgbuildDialog(QDialog):
         lay.addWidget(bb)
 
 
+def _exec(d: QDialog) -> int:
+    """Run a question dialog modal to its operation window only, so the main
+    window (and any other running operation) stays usable meanwhile."""
+    d.setWindowModality(Qt.WindowModality.WindowModal)
+    return d.exec()
+
+
 def ask(q: dict, parent=None) -> dict:
     """Show the right dialog for question ``q`` and return the answer frame."""
     from PySide6.QtWidgets import QMessageBox
@@ -175,34 +182,40 @@ def ask(q: dict, parent=None) -> dict:
     k = protocol.kind(q)
     qid = q.get("QuestionId", "")
     if k == "q.transaction":
-        return protocol.answer_transaction(qid, TransactionDialog(q, parent).exec() == QDialog.DialogCode.Accepted)
+        return protocol.answer_transaction(qid, _exec(TransactionDialog(q, parent)) == QDialog.DialogCode.Accepted)
     if k == "q.optdeps":
         d = SelectDialog(q, True, parent)
-        return protocol.answer_optdeps(qid, d.selected_indices() if d.exec() else [])
+        return protocol.answer_optdeps(qid, d.selected_indices() if _exec(d) else [])
     if k == "q.provider":
         d = SelectDialog(q, False, parent)
-        d.exec()
+        _exec(d)
         return protocol.answer_provider(qid, d.selected_index())
     if k == "q.pkgbuilddiff":
-        return protocol.answer_pkgbuild(qid, PkgbuildDialog(q, parent).exec() == QDialog.DialogCode.Accepted)
+        return protocol.answer_pkgbuild(qid, _exec(PkgbuildDialog(q, parent)) == QDialog.DialogCode.Accepted)
     # q.yesno and anything unknown
     text = q.get("QuestionText") or "Continue?"
     args = q.get("Arguments") or []
     if args:
         text += "\n\n" + "\n".join(args)
-    res = QMessageBox.question(parent, "Shelly", text,
-                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-    return protocol.answer_yesno(qid, res == QMessageBox.StandardButton.Yes)
+    box = QMessageBox(QMessageBox.Icon.Question, "Shelly", text,
+                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, parent)
+    return protocol.answer_yesno(qid, _exec(box) == QMessageBox.StandardButton.Yes)
 
 
 class OperationDialog(QDialog):
-    """Runs an :class:`Operation`, streams its log/progress and answers questions."""
+    """Runs an :class:`Operation`, streams its log/progress and answers questions.
+
+    It is a standalone top-level window (no parent), so it gets its own
+    taskbar entry, can sit behind or beside the main window, and never blocks
+    it. The caller keeps a reference to it while it is open.
+    """
 
     completed = Signal(int)
 
     def __init__(self, title: str, args: list[str], privileged: bool, parent=None) -> None:
-        super().__init__(parent)
+        super().__init__(None, Qt.WindowType.Window)
         self.setWindowTitle(title)
+        self.setModal(False)
         self.resize(760, 460)
         self.op = Operation(args, privileged, self)
         lay = QVBoxLayout(self)

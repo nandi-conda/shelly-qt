@@ -93,7 +93,8 @@ class MainWindow(QMainWindow):
                 p.refresh()
 
     def run_op(self, title: str, args: list[str], privileged: bool, on_success=None) -> OperationDialog:
-        d = OperationDialog(title, args, privileged, self)
+        d = OperationDialog(title, args, privileged)
+        d.setWindowIcon(self.windowIcon())
         self.ops.append(d)
 
         def finished(code: int) -> None:

@@ -427,7 +427,8 @@ class AurPage(Page):
         if err:
             return
         items = res if isinstance(res, list) else [res]
-        d = QDialog(self)
+        d = QDialog(None, Qt.WindowType.Window)  # standalone, non-blocking viewer
+        d.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         d.setWindowTitle(f"PKGBUILD — {name}")
         d.resize(860, 620)
         lay = QVBoxLayout(d)
@@ -441,9 +442,10 @@ class AurPage(Page):
             tabs.addTab(ed, it.get("Name", name))
         lay.addWidget(tabs)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        bb.rejected.connect(d.reject)
+        bb.rejected.connect(d.close)
         lay.addWidget(bb)
-        d.exec()
+        self._viewers = [v for v in getattr(self, "_viewers", []) if v.isVisible()] + [d]
+        d.show()
 
     def install(self) -> None:
         rows = self.results.targets()
