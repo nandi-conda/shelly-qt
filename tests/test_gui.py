@@ -85,7 +85,8 @@ def test_declined_aur_build_fails(win, monkeypatch):
     d = win.run_op("x", ["install", "aur", "yay"], True)
     wait_until(lambda: d.exit_code is not None)
     assert d.exit_code == 1
-    assert "Build declined." in d.status.text()
+    assert d.banner.isVisible() and d.banner.tone == "error"
+    assert "Build declined." in d.banner.summary.text()
 
 
 
@@ -289,3 +290,10 @@ def test_open_flatpakref_goes_to_flatpak_page_and_installs(win, monkeypatch, tmp
     assert d.exit_code == 0
     wait_until(lambda: page.results.current_row() is not None)
     assert page.results.current_row()["app_id"] == "org.kde.krita"
+
+
+def test_split_error():
+    s, d = dialogs.split_error("Could not complete. App x is already installed\nPackage: /a.flatpakref\n\n"
+                               "Technical details: FlatpakOperationFailed\nBackend: flatpak")
+    assert s == "Could not complete. App x is already installed"
+    assert d.startswith("Package: /a.flatpakref") and "Backend: flatpak" in d

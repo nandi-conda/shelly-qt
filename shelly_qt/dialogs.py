@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QColor, QFont, QIcon, QPalette, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QButtonGroup, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView,
     QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton,
     QRadioButton, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
@@ -202,6 +202,86 @@ def ask(q: dict, parent=None) -> dict:
     return protocol.answer_yesno(qid, _exec(box) == QMessageBox.StandardButton.Yes)
 
 
+# Banner palettes: (accent/border, tint, title text), for dark and light themes.
+_TONES = {
+    "error": {"dark": ("#e88388", "#3a2a2d", "#f4b6b9"), "light": ("#d9534f", "#fbeeee", "#9f2f2b")},
+    "info": {"dark": ("#d8b26a", "#363126", "#ecd5a3"), "light": ("#c98a1b", "#fdf6e7", "#7a5410")},
+}
+_ICONS = {"error": "dialog-error", "info": "dialog-information"}
+_BENIGN = ("already installed", "is already up to date", "nothing to do", "already up-to-date")
+
+
+def split_error(text: str) -> tuple[str, str]:
+    """Split a CLI error into a one-paragraph summary and the technical rest."""
+    text = text.strip()
+    head, _, rest = text.partition("\n\n")
+    lines = head.splitlines()
+    summary, extra = (lines[0] if lines else text), lines[1:]
+    detail = "\n".join(extra + ([rest] if rest else [])).strip()
+    return summary, detail
+
+
+class Banner(QFrame):
+    """A soft, theme-aware notice box: icon, a readable title/summary and muted details."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("banner")
+        self.tone = ""
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 10, 12, 10)
+        row.setSpacing(12)
+        self.icon = QLabel()
+        self.icon.setAlignment(Qt.AlignmentFlag.AlignTop)
+        row.addWidget(self.icon)
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        self.title = QLabel()
+        self.title.setWordWrap(True)
+        f = self.title.font()
+        f.setBold(True)
+        self.title.setFont(f)
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.detail = QLabel()
+        self.detail.setWordWrap(True)
+        self.detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        df = self.detail.font()
+        df.setPointSizeF(max(7.0, df.pointSizeF() * 0.9))
+        self.detail.setFont(df)
+        for w in (self.title, self.summary, self.detail):
+            col.addWidget(w)
+        row.addLayout(col, 1)
+        self.hide()
+
+    def show_message(self, tone: str, title: str, summary: str, detail: str = "") -> None:
+        self.tone = tone
+        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
+        accent, tint, title_fg = _TONES[tone]["dark" if dark else "light"]
+        text = self.palette().color(QPalette.ColorRole.WindowText)
+        muted = QColor(text)
+        muted.setAlphaF(0.6)
+        self.setStyleSheet(
+            f"QFrame#banner {{ background: {tint}; border: 1px solid {accent}55;"
+            f" border-left: 4px solid {accent}; border-radius: 6px; }}"
+            f"QFrame#banner QLabel {{ background: transparent; border: none; }}")
+        self.title.setStyleSheet(f"color: {title_fg};")
+        self.summary.setStyleSheet(f"color: {text.name()};")
+        self.detail.setStyleSheet(f"color: {muted.name(QColor.NameFormat.HexArgb)};")
+        icon = QIcon.fromTheme(_ICONS[tone])
+        self.icon.setPixmap(icon.pixmap(24, 24) if not icon.isNull() else
+                            self.style().standardIcon(
+                                self.style().StandardPixmap.SP_MessageBoxCritical if tone == "error"
+                                else self.style().StandardPixmap.SP_MessageBoxInformation).pixmap(24, 24))
+        self.title.setText(title)
+        self.summary.setText(summary)
+        self.summary.setVisible(bool(summary))
+        self.detail.setText(detail)
+        self.detail.setVisible(bool(detail))
+        self.show()
+
+
 class OperationDialog(QDialog):
     """Runs an :class:`Operation`, streams its log/progress and answers questions.
 
@@ -225,6 +305,8 @@ class OperationDialog(QDialog):
         self.bar = QProgressBar()
         self.bar.setRange(0, 0)
         lay.addWidget(self.bar)
+        self.banner = Banner()
+        lay.addWidget(self.banner)
         self.logview = QPlainTextEdit()
         self.logview.setReadOnly(True)
         self.logview.setFont(_mono())
@@ -272,9 +354,17 @@ class OperationDialog(QDialog):
         if code == 0:
             self.status.setText("Finished successfully.")
         else:
-            detail = "\n".join(self.op.failed_messages) or f"Shelly exited with code {code}."
-            self.status.setText("Failed: " + detail)
-            self.status.setStyleSheet("color: #b91c1c;")
+            msgs = self.op.failed_messages or [f"Shelly exited with code {code}."]
+            summary, detail = split_error(msgs[0])
+            more = "\n\n".join(m.strip() for m in msgs[1:])
+            detail = "\n\n".join(x for x in (detail, more) if x)
+            benign = any(b in summary.lower() for b in _BENIGN)
+            if benign:
+                self.status.setText("Nothing to do.")
+                self.banner.show_message("info", "Nothing changed", summary, detail)
+            else:
+                self.status.setText("Failed.")
+                self.banner.show_message("error", "This didn't work", summary, detail)
         self.cancel_btn.setEnabled(False)
         self.close_btn.setEnabled(True)
         self.close_btn.setDefault(True)
