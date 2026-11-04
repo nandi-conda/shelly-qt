@@ -422,6 +422,7 @@ def prefix_server(monkeypatch):
     srv, url = fake_prefix_alpm.start()
     monkeypatch.setenv("PREFIX_ALPM_URL", url)
     fake_prefix_alpm.State.calls.clear()
+    fake_prefix_alpm.State.added = {"ripgrep": "conda-forge"}
     yield fake_prefix_alpm.State
     srv.shutdown()
 
@@ -439,10 +440,11 @@ def test_prefixdev_search_and_install(prefix_server, monkeypatch):
         wait_until(lambda: len(page.results.model.rows) == 2)
         rows = {r["name"]: r for r in page.results.model.rows}
         assert rows["conda-httpie"]["available"] is None
+        assert rows["conda-httpie"]["channel"] == "conda-forge"
         assert not page.banner.isVisible()
         page.install_rows([rows["conda-httpie"]])
         wait_until(lambda: len(w.ops) >= 1)
-        assert ("/add", {"name": ["conda-httpie"]}) in prefix_server.calls
+        assert ("/add", {"name": ["conda-forge::httpie"]}) in prefix_server.calls
         assert w.ops[0].op.args == ["sync", "--force"]
         wait_until(lambda: len(w.ops) >= 2 or w.ops[0].exit_code not in (None, 0))
         assert w.ops[-1].op.args == ["install", "standard", "conda-httpie"]
@@ -484,5 +486,35 @@ def test_combined_search_includes_prefix_dev(prefix_server):
         rows = [r for r in page.table.model.rows if r["_source"] == "prefix"]
         assert [r["Name"] for r in rows] == ["conda-httpie"]
         assert "prefix" in page.toggles
+    finally:
+        w.close()
+
+
+def test_prefixdev_searches_every_channel(prefix_server, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
+                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+    w = MainWindow()
+    w.show()
+    try:
+        w.nav.setCurrentRow(4)
+        page = w.pages[4]
+        page.query.setText("pixi")
+        page.search()
+        wait_until(lambda: len(page.results.model.rows) == 2)
+        chans = {r["channel"]: r for r in page.results.model.rows}
+        assert set(chans) == {"conda-forge", "github-releases"}
+        page.install_rows([chans["github-releases"]])
+        wait_until(lambda: len(w.ops) >= 1)
+        assert ("/add", {"name": ["github-releases::pixi"]}) in prefix_server.calls
+        assert prefix_server.added["pixi"] == "github-releases"
+        finish(w.ops[:1])
+        wait_until(lambda: len(w.ops) >= 2)
+        finish(w.ops[1:2])
+        assert w.ops[1].op.args == ["install", "standard", "conda-pixi"]
+        page.search()  # the repo now serves pixi from github-releases, conda-forge's is shadowed
+        wait_until(lambda: any(r.get("shadowed_by") for r in page.results.model.rows))
+        cf = next(r for r in page.results.model.rows if r["channel"] == "conda-forge")
+        assert cf["shadowed_by"] == "github-releases" and "switches it" in __import__(
+            "shelly_qt.pages", fromlist=["prefix_details"]).prefix_details(cf)
     finally:
         w.close()

@@ -548,19 +548,25 @@ class AurPage(Page):
 
 def prefix_details(r: dict) -> str:
     conda = r.get("conda_name") or r.get("name", "")
-    url = f"https://prefix.dev/channels/conda-forge/packages/{conda}"
+    channel = r.get("channel") or "conda-forge"
+    url = f"https://prefix.dev/channels/{channel}/packages/{conda}"
     if r.get("installed"):
         state = f"installed ({r['installed']})"
     elif r.get("available"):
         state = f"in the [prefix] repo ({r['available']})"
+    elif r.get("shadowed_by"):
+        state = (f"the [prefix] repo serves {r.get('name', '')} from {r['shadowed_by']}; "
+                 f"Install switches it to {channel}")
     elif r.get("offline"):
         state = "prefix-alpm server not running: search only"
     else:
         state = "not added yet; Install adds it and its dependencies"
     return details_html(r.get("name", ""), [
-        ("conda-forge name", conda),
+        ("Channel", channel),
+        ("conda name", conda),
         ("Latest on prefix.dev", r.get("latest")),
         ("Status", state),
+        ("Dependencies from", "conda-forge first" + ("" if channel == "conda-forge" else f", then {channel}")),
         ("Installs to", "/opt/prefix (bin/ is appended to PATH)"),
         ("Page", url),
     ], r.get("summary") or "")
@@ -582,7 +588,7 @@ class PrefixDevPage(Page):
         lay = QVBoxLayout(self)
         row = QHBoxLayout()
         self.query = QLineEdit()
-        self.query.setPlaceholderText("Search conda-forge on prefix.dev…")
+        self.query.setPlaceholderText("Search every public channel on prefix.dev…")
         self.query.setClearButtonEnabled(True)
         row.addWidget(self.query, 1)
         lay.addLayout(row)
@@ -592,7 +598,7 @@ class PrefixDevPage(Page):
         self.banner.hide()
         lay.addWidget(self.banner)
         self.results = PackageTable([
-            ("Name", key("name")), ("Latest", key("latest")),
+            ("Name", key("name")), ("Channel", key("channel")), ("Latest", key("latest")),
             ("In repo", lambda r: r.get("available") or ""),
             ("Installed", lambda r: r.get("installed") or ""),
             ("Summary", key("summary")),
@@ -607,7 +613,7 @@ class PrefixDevPage(Page):
         # keep prefix.dev's relevance order until the user clicks a column header
         self.results.view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         lay.addWidget(self.results, 1)
-        self.hint = QLabel(f"Packages come from conda-forge via the prefix-alpm server at "
+        self.hint = QLabel(f"Packages come from prefix.dev channels via the prefix-alpm server at "
                            f"<code>{server_url()}</code> and install under <code>/opt/prefix</code>.")
         self.hint.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(self.hint)
@@ -644,7 +650,9 @@ class PrefixDevPage(Page):
 
     def _annotate(self, rows: list[dict]) -> None:
         for r in rows:
-            r["installed"] = self.installed.get(r.get("name", ""), "")
+            # pacman knows one package per name: only the channel the repo serves is "installed"
+            mine = not r.get("shadowed_by")
+            r["installed"] = self.installed.get(r.get("name", ""), "") if mine else ""
         self.results.set_rows(list(rows))
 
     def search(self) -> None:
@@ -677,9 +685,14 @@ class PrefixDevPage(Page):
             QMessageBox.information(self, "Shelly", "Installing from prefix.dev needs the prefix-alpm "
                                     "server; start it with <code>just serve</code>.")
             return
-        names = [r["name"] for r in rows]
+        from .prefixdev import add_name
+
+        by_name: dict[str, dict] = {}
+        for r in rows:  # one package per name: the last checked channel wins
+            by_name[r["name"]] = r
+        names = list(by_name)
         self.main.busy(f"Adding {what(rows)} to the [prefix] repo…")
-        self.client.add(names, lambda res, err: self._added(names, res, err))
+        self.client.add([add_name(r) for r in by_name.values()], lambda res, err: self._added(names, res, err))
 
     def _added(self, names: list[str], res, err) -> None:
         self.main.idle(err)

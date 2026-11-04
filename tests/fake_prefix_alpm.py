@@ -4,15 +4,17 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-CATALOG = {
-    "httpie": ("3.2.4", "a CLI, cURL-like tool for humans"),
-    "httpx": ("0.28.1", "The next generation HTTP client."),
-    "ripgrep": ("15.2.0", "ripgrep recursively searches directories for a regex pattern"),
+CATALOG = {  # (channel, name): (version, summary)
+    ("conda-forge", "httpie"): ("3.2.4", "a CLI, cURL-like tool for humans"),
+    ("conda-forge", "httpx"): ("0.28.1", "The next generation HTTP client."),
+    ("conda-forge", "ripgrep"): ("15.2.0", "ripgrep recursively searches directories for a regex pattern"),
+    ("conda-forge", "pixi"): ("0.84.0", "pixi package manager"),
+    ("github-releases", "pixi"): ("0.83.0", "pixi from GitHub releases"),
 }
 
 
 class State:
-    added: set = {"ripgrep"}
+    added: dict = {"ripgrep": "conda-forge"}  # name -> channel the repo serves it from
     calls: list = []
 
 
@@ -37,15 +39,22 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/search":
             q = qs.get("q", [""])[0]
             return self._send([
-                {"name": f"conda-{n}", "conda_name": n, "summary": s, "latest": v,
-                 "available": f"{v}-1" if n in State.added else None}
-                for n, (v, s) in CATALOG.items() if q in n])
+                {"name": f"conda-{n}", "conda_name": n, "channel": ch, "add": f"{ch}::{n}", "summary": s,
+                 "latest": v, "available": f"{v}-1" if State.added.get(n) == ch else None,
+                 "shadowed_by": State.added[n] if n in State.added and State.added[n] != ch else None}
+                for (ch, n), (v, s) in CATALOG.items() if q in n])
         if url.path == "/add":
-            names = [n.removeprefix("conda-") for v in qs.get("name", []) for n in v.split(",")]
-            bad = [n for n in names if n not in CATALOG]
-            State.added |= set(names) - set(bad)
-            return self._send({"added": [f"conda-{n}" for n in names if n not in bad], "failed": bad,
-                               "conflicts": [], "packages": len(State.added)})
+            entries = [e for v in qs.get("name", []) for e in v.split(",")]
+            added, bad = [], []
+            for e in entries:
+                ch, _, n = e.rpartition("::")
+                ch, n = ch or "conda-forge", n.removeprefix("conda-")
+                if (ch, n) in CATALOG:
+                    State.added[n] = ch
+                    added.append(f"conda-{n}")
+                else:
+                    bad.append(e)
+            return self._send({"added": added, "failed": bad, "conflicts": [], "packages": len(State.added)})
         self._send({"error": "not found"}, 404)
 
 

@@ -3,9 +3,11 @@
 prefix-alpm (https://fileapi.fastapicloud.dev/git/smelly/prefix-alpm.git) serves
 conda-forge packages as the pacman repo ``[prefix]``. Its HTTP API:
 
-* ``/search?q=``  live search on prefix.dev's GraphQL API, annotated with what the
-  repo already offers (``available``)
-* ``/add?name=a,b`` resolve packages + dependencies into the repo's db
+* ``/search?q=``  live search across every public prefix.dev channel (GraphQL),
+  annotated with each row's ``channel``, what the repo already offers (``available``)
+  and the ``add`` value (``channel::name``)
+* ``/add?name=a,b`` resolve packages + dependencies into the repo's db (``channel::name``
+  takes a package from that channel)
 * ``/status``
 
 When no server runs, search falls back to prefix.dev's GraphQL API directly
@@ -22,6 +24,15 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 
 GRAPHQL = "https://prefix.dev/api/graphql"
 Done = Callable[[Any, str | None], None]
+
+
+def add_name(row: dict) -> str:
+    """What to pass to /add for a search row: `channel::name` when the row has a channel."""
+    if row.get("add"):
+        return row["add"]
+    if row.get("channel") and row.get("conda_name"):
+        return f"{row['channel']}::{row['conda_name']}"
+    return row.get("name", "")
 
 
 def server_url() -> str:
@@ -98,10 +109,10 @@ class Client(QObject):
 
     def _graphql_search(self, text: str, limit: int, done: Done) -> QNetworkReply:
         query = (
-            "query($q: String!, $n: Int!) { channel(name: \"conda-forge\") { packages("
+            "query($q: String!, $n: Int!) { packages("
             "filters: {name: {contains: $q}}, limit: $n, "
             "orderBy: {bySimilarity: {field: NAME, direction: DESC, matches: $q}}) "
-            "{ page { name summary latestVersion { version } } } } }"
+            "{ page { name summary latestVersion { version } channel { name isPublic } } } }"
         )
         req = QNetworkRequest(QUrl(GRAPHQL))
         req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
@@ -111,9 +122,16 @@ class Client(QObject):
         def got(res, err):
             if err:
                 return done(None, err)
-            page = (((res or {}).get("data") or {}).get("channel") or {}).get("packages", {}).get("page", [])
-            done([{"name": name_prefix() + p["name"], "conda_name": p["name"], "summary": p.get("summary"),
-                   "latest": (p.get("latestVersion") or {}).get("version"), "available": None,
-                   "offline": True} for p in page], None)
+            page = (((res or {}).get("data") or {}).get("packages") or {}).get("page", [])
+            rows = []
+            for p in page:
+                ch = p.get("channel") or {}
+                if ch.get("isPublic") is False:
+                    continue
+                rows.append({"name": name_prefix() + p["name"], "conda_name": p["name"],
+                             "channel": ch.get("name", ""), "add": f"{ch.get('name', '')}::{p['name']}",
+                             "summary": p.get("summary"), "latest": (p.get("latestVersion") or {}).get("version"),
+                             "available": None, "offline": True})
+            done(rows, None)
 
         return self._wire(self.nam.post(req, body), got)

@@ -183,7 +183,7 @@ class FlatpakSource(CliSource):
 
 
 class PrefixSource(Source):
-    """conda-forge on prefix.dev, installed through a prefix-alpm server ([prefix] repo).
+    """Every public prefix.dev channel, installed through a prefix-alpm server ([prefix] repo).
 
     Only offered while the server answers: without it nothing can be installed, so the
     combined search stays quiet instead of listing rows it can't act on (the prefix.dev
@@ -209,8 +209,10 @@ class PrefixSource(Source):
 
     def _row(self, r: dict) -> dict:
         row = dict(r)
+        ch = r.get("channel") or ""
+        tag = f"[{ch}] " if ch and ch != "conda-forge" else ""
         row.update(Name=r.get("name", ""), Version=r.get("available") or r.get("latest") or "",
-                   Description=r.get("summary") or "", _source=self.key, Installed=False)
+                   Description=tag + (r.get("summary") or ""), _source=self.key, Installed=False)
         return row
 
     def mark_installed(self, rows, main) -> None:
@@ -218,7 +220,7 @@ class PrefixSource(Source):
         have = set(getattr(page, "installed", {}) or {})
         have |= _installed_names(main, "InstalledPage", "table", "Name")
         for r in rows:
-            r["Installed"] = r["Installed"] or r.get("Name") in have
+            r["Installed"] = r["Installed"] or (r.get("Name") in have and not r.get("shadowed_by"))
             r["installed"] = "yes" if r["Installed"] else ""
 
     def install(self, main, rows, options) -> None:
