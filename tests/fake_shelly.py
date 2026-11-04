@@ -74,7 +74,9 @@ elif args == ["-Lf"]:
 elif args[:2] == ["search", "flatpak"]:
     frame({"hits": [{"name": "Krita", "app_id": "org.kde.krita", "summary": "Digital painting",
                      "developer_name": "KDE", "verification_verified": True,
-                     "project_license": "GPL-3.0"}], "totalHits": 1})
+                     "project_license": "GPL-3.0"},
+                    {"name": "GIMP", "app_id": "org.gimp.GIMP", "summary": "Image editor",
+                     "developer_name": "GIMP team"}], "totalHits": 2})
 elif args[:2] == ["list", "appimage"]:
     frame([{"Name": "obsidian", "DesktopName": "Obsidian", "Version": "1.7.7", "SizeOnDisk": 120_000_000,
             "Path": "/home/user/Applications/Obsidian.AppImage"}])

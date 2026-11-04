@@ -32,7 +32,8 @@ def what(rows: list[dict], noun: str = "packages") -> str:
     """'firefox' for one row, '3 packages' for several."""
     if len(rows) == 1:
         r = rows[0]
-        return str(r.get("DesktopName") or r.get("Name") or r.get("Id") or "")
+        return str(r.get("DesktopName") or r.get("Name") or r.get("name") or r.get("Id")
+                   or r.get("app_id") or "")
     return f"{len(rows)} {noun}"
 
 
@@ -443,6 +444,17 @@ class AurPage(Page):
         self.results = PackageTable(AUR_COLS, placeholder="Filter results…")
         self.results.add_button("Review PKGBUILD", lambda: self.preview(self.results))
         self.results.add_button("Install", self.install)
+        self.results.add_context_action("Review PKGBUILD", lambda rows: self.preview(self.results),
+                                        lambda rows: len(rows) == 1)
+        self.results.add_context_action(lambda rows: f"Install {what(rows)}", self.install_rows,
+                                        lambda rows: not any(map(self.is_installed, rows)))
+        self.results.add_context_action(lambda rows: f"Update {what(rows)}",
+                                        lambda rows: update_packages(self, rows, "aur"),
+                                        lambda rows: all(map(self.is_installed, rows))
+                                        and has_update(self, "aur")(rows))
+        self.results.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                        lambda rows: remove_packages(self, rows, "aur"),
+                                        lambda rows: all(map(self.is_installed, rows)))
         self.results.current_changed.connect(lambda r: r and self.results.detail.setHtml(aur_details(r)))
         sl.addWidget(self.results, 1)
         # installed tab
@@ -450,6 +462,8 @@ class AurPage(Page):
         self.installed.add_button("Review PKGBUILD", lambda: self.preview(self.installed))
         self.installed.add_button("Remove…", self.remove)
         self.installed.add_button("Refresh", self.refresh)
+        self.installed.add_context_action("Review PKGBUILD", lambda rows: self.preview(self.installed),
+                                          lambda rows: len(rows) == 1)
         self.installed.add_context_action(lambda rows: f"Update {what(rows)}",
                                           lambda rows: update_packages(self, rows, "aur"),
                                           has_update(self, "aur"))
@@ -515,8 +529,13 @@ class AurPage(Page):
         self._viewers = [v for v in getattr(self, "_viewers", []) if v.isVisible()] + [d]
         d.show()
 
+    def is_installed(self, row: dict) -> bool:
+        return any(r.get("Name") == row.get("Name") for r in self.installed.model.rows)
+
     def install(self) -> None:
-        rows = self.results.targets()
+        self.install_rows(self.results.targets())
+
+    def install_rows(self, rows: list[dict]) -> None:
         if self.need_selection(rows):
             self.main.run_op(f"Building and installing {len(rows)} AUR package(s)",
                              ["install", "aur", *self.names(rows)], True, self.main.refresh_all)
@@ -573,6 +592,17 @@ class FlatpakPage(Page):
         self.user_scope = QCheckBox("Install for current user only")
         self.results.toolbar.addWidget(self.user_scope)
         self.results.add_button("Install", self.install)
+        installed_rows = lambda rows: [self.installed_row(r) for r in rows]  # noqa: E731
+        self.results.add_context_action(lambda rows: f"Install {what(rows, 'apps')}", self.install_rows,
+                                        lambda rows: not any(installed_rows(rows)))
+        self.results.add_context_action(lambda rows: f"Update {what(rows, 'apps')}",
+                                        lambda rows: update_packages(self, installed_rows(rows), "flatpak"),
+                                        lambda rows: all(installed_rows(rows))
+                                        and has_update(self, "flatpak")(installed_rows(rows)))
+        self.results.add_context_action(lambda rows: f"Remove {what(rows, 'apps')}…",
+                                        lambda rows: remove_flatpaks(self, installed_rows(rows),
+                                                                     self.remove_config.isChecked()),
+                                        lambda rows: all(installed_rows(rows)))
         self.results.current_changed.connect(lambda r: r and self.results.detail.setHtml(details_html(
             r.get("name", ""), [("App ID", r.get("app_id") or r.get("id")),
                                 ("Developer", r.get("developer_name")),
@@ -619,8 +649,15 @@ class FlatpakPage(Page):
             if want:
                 self.results.select_where(lambda r: (r.get("app_id") or r.get("id")) == want)
 
+    def installed_row(self, result: dict) -> dict | None:
+        """The installed Flatpak matching a Flathub search hit, if any."""
+        app_id = result.get("app_id") or result.get("id")
+        return next((r for r in self.installed.model.rows if r.get("Id") == app_id), None)
+
     def install(self) -> None:
-        rows = self.results.targets()
+        self.install_rows(self.results.targets())
+
+    def install_rows(self, rows: list[dict]) -> None:
         if not self.need_selection(rows):
             return
         for r in rows:

@@ -120,7 +120,9 @@ def answers(monkeypatch):
     monkeypatch.setattr(pages, "confirm", lambda *a: A.ok)
     monkeypatch.setattr(pages.RemoveOptions, "exec", lambda self: A.ok)
     monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
-                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+                        dialogs.protocol.answer_pkgbuild(q["QuestionId"], True)
+                        if q["$kind"] == "q.pkgbuilddiff"
+                        else dialogs.protocol.answer_transaction(q["QuestionId"], True))
     return A
 
 
@@ -223,7 +225,7 @@ def test_aur_flatpak_appimage_menus(win, answers):
         win.nav.setCurrentRow(i)
     aur, flat, appimg = win.pages[3].installed, win.pages[4].installed, win.pages[5].table
     wait_until(lambda: len(aur.model.rows) == 1 and len(flat.model.rows) == 1 and len(appimg.model.rows) == 1)
-    assert menu_texts(menu_at(aur, 0)) == ["Update yay", "Remove yay…"]
+    assert menu_texts(menu_at(aur, 0)) == ["Review PKGBUILD", "Update yay", "Remove yay…"]
     assert menu_texts(menu_at(flat, 0)) == ["Update GIMP", "Remove GIMP…"]
     assert menu_texts(menu_at(appimg, 0)) == ["Remove Obsidian…"]
     win.pages[5].check()
@@ -278,7 +280,9 @@ def test_open_flatpakref_goes_to_flatpak_page_and_installs(win, monkeypatch, tmp
     monkeypatch.setattr(QMessageBox, "exec", lambda self: shown.append(self.text())
                         or QMessageBox.StandardButton.Yes)
     monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
-                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+                        dialogs.protocol.answer_pkgbuild(q["QuestionId"], True)
+                        if q["$kind"] == "q.pkgbuilddiff"
+                        else dialogs.protocol.answer_transaction(q["QuestionId"], True))
     win.open_target(classify(str(ref)))
     page = win.stack.currentWidget()
     assert isinstance(page, FlatpakPage) and page.tabs.currentIndex() == 1
@@ -297,3 +301,55 @@ def test_split_error():
                                "Technical details: FlatpakOperationFailed\nBackend: flatpak")
     assert s == "Could not complete. App x is already installed"
     assert d.startswith("Package: /a.flatpakref") and "Backend: flatpak" in d
+
+
+def test_every_package_list_has_a_context_menu(win):
+    from shelly_qt.widgets import PackageTable
+    tables = win.findChildren(PackageTable)
+    assert len(tables) >= 10
+    assert [t for t in tables if not t._actions] == []
+
+
+def test_flathub_search_menu(win, answers):
+    updates_loaded(win)
+    page = win.pages[4]
+    win.nav.setCurrentRow(4)
+    wait_until(lambda: len(page.installed.model.rows) == 1)
+    page.query.setText("x")
+    page.search()
+    wait_until(lambda: len(page.results.model.rows) == 2)
+    page.tabs.setCurrentIndex(1)
+    rows = [page.results.row_at(page.results.proxy.index(i, 0)) for i in range(2)]
+    gimp = next(i for i, r in enumerate(rows) if r["name"] == "GIMP")
+    krita = 1 - gimp
+    assert menu_texts(menu_at(page.results, krita)) == ["Install Krita"]
+    assert menu_texts(menu_at(page.results, gimp)) == ["Update GIMP", "Remove GIMP…"]
+    ops = trigger(win, menu_at(page.results, krita), "Install")
+    ops += trigger(win, menu_at(page.results, gimp), "Update")
+    ops += trigger(win, menu_at(page.results, gimp), "Remove")
+    assert [d.op.args for d in ops] == [["install", "flatpak", "org.kde.krita"],
+                                        ["update", "flatpak", "org.gimp.GIMP"],
+                                        ["remove", "flatpak", "org.gimp.GIMP", "--remove-unused"]]
+    finish(ops)
+
+
+def test_aur_search_menu(win, answers):
+    updates_loaded(win)
+    page = win.pages[3]
+    win.nav.setCurrentRow(3)
+    wait_until(lambda: len(page.installed.model.rows) == 1)
+    page.query.setText("ya")
+    page.search()
+    wait_until(lambda: len(page.results.model.rows) == 2)
+    rows = [page.results.row_at(page.results.proxy.index(i, 0)) for i in range(2)]
+    yay = next(i for i, r in enumerate(rows) if r["Name"] == "yay")
+    paru = 1 - yay
+    assert menu_texts(menu_at(page.results, paru)) == ["Review PKGBUILD", "Install paru"]
+    assert menu_texts(menu_at(page.results, yay)) == ["Review PKGBUILD", "Update yay", "Remove yay…"]
+    page.results.view.selectAll()
+    assert menu_texts(menu_at(page.results, 0)) == []  # mixed: one installed, one not
+    page.results.view.clearSelection()
+    ops = trigger(win, menu_at(page.results, paru), "Install")
+    assert ops[0].op.args == ["install", "aur", "paru"]
+    finish(ops)
+    assert menu_texts(menu_at(page.installed, 0))[0] == "Review PKGBUILD"
