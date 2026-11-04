@@ -42,13 +42,29 @@ AUR = [
     {"Id": 2, "Name": "paru", "PackageBaseId": 2, "PackageBase": "paru", "Version": "2.0.4-1",
      "Description": "Feature packed AUR helper", "NumVotes": 1100, "Popularity": 18.4,
      "Maintainer": "Morganamilo", "FirstSubmitted": 1600000000, "LastModified": 1729000000},
+    {"Id": 3, "Name": "zed-git", "PackageBaseId": 3, "PackageBase": "zed-git", "Version": "0.166.0.r1-1",
+     "Description": "High-performance, multiplayer code editor (git build)", "NumVotes": 40,
+     "Popularity": 1.2, "Maintainer": "someone", "FirstSubmitted": 1700000000, "LastModified": 1730000000},
+]
+GIMP = {"name": "GIMP", "app_id": "org.gimp.GIMP", "summary": "Image editor", "developer_name": "GIMP team"}
+FLATHUB = [
+    {"name": "Krita", "app_id": "org.kde.krita", "summary": "Digital painting",
+     "developer_name": "KDE", "verification_verified": True, "project_license": "GPL-3.0"},
+    {"name": "Zed", "app_id": "dev.zed.Zed", "summary": "High-performance, multiplayer code editor",
+     "developer_name": "Zed Industries", "verification_verified": True, "project_license": "GPL-3.0"},
 ]
 
 args = [a for a in sys.argv[1:] if a != "--ui-mode"]
 cmd = " ".join(args)
 
-if args == ["-Ssv"] or args[:2] == ["search", "standard"]:
+if args == ["-Ssv"]:
     frame(PKGS)
+elif args[:2] == ["search", "standard"]:
+    q = args[2].lower() if len(args) > 2 and not args[2].startswith("-") else ""
+    hits = [p for p in PKGS if q in p["Name"] or q in p["Description"].lower()]
+    frame(hits[:2])  # standard search streams pages
+    if hits[2:]:
+        frame(hits[2:])
 elif args == ["-Ls"]:
     frame([p for p in PKGS if p["Installed"]])
 elif args[:1] == ["-Ssdi"]:
@@ -66,17 +82,23 @@ elif args[:2] == ["list", "aur"]:
 elif args[:2] == ["search", "aur"]:
     if "--pkgbuild" in args:
         frame([{"Name": args[2], "PkgBuild": "pkgname=%s\npkgver=1.0\npkgrel=1\n" % args[2]}])
+    elif args[2:] == ["fail"]:
+        frame({"$kind": "alpm.error", "ErrorMessage": "AUR RPC unreachable", "Level": "Error"})
+        sys.exit(1)
     else:
-        frame(AUR)
+        words = [w.lower() for w in args[2:]]
+        # short queries return the classic fixed list (yay + paru); longer ones filter
+        frame(AUR[:2] if len(" ".join(words)) < 3 else
+              [p for p in AUR if all(w in (p["Name"] + p["Description"]).lower() for w in words)])
 elif args == ["-Lf"]:
     frame([{"Id": "org.gimp.GIMP", "Name": "GIMP", "Version": "2.10.38", "Remote": "flathub",
             "Kind": 0, "InstalledSize": 400_000_000, "InstallLevel": 0}])
 elif args[:2] == ["search", "flatpak"]:
-    frame({"hits": [{"name": "Krita", "app_id": "org.kde.krita", "summary": "Digital painting",
-                     "developer_name": "KDE", "verification_verified": True,
-                     "project_license": "GPL-3.0"},
-                    {"name": "GIMP", "app_id": "org.gimp.GIMP", "summary": "Image editor",
-                     "developer_name": "GIMP team"}], "totalHits": 2})
+    q = args[2].lower()
+    # one- or two-letter queries return the classic fixed list (Krita + installed GIMP)
+    hits = FLATHUB[:1] + [GIMP] if len(q) < 3 else \
+        [h for h in FLATHUB + [GIMP] if q in (h["name"] + h["app_id"] + h["summary"]).lower()]
+    frame({"hits": hits, "totalHits": len(hits)})
 elif args[:2] == ["list", "appimage"]:
     frame([{"Name": "obsidian", "DesktopName": "Obsidian", "Version": "1.7.7", "SizeOnDisk": 120_000_000,
             "Path": "/home/user/Applications/Obsidian.AppImage"}])

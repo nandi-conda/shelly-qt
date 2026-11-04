@@ -9,6 +9,7 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 
 | Page | What it does | CLI used |
 |---|---|---|
+| Search (top bar, Ctrl+K) | One query across repo packages, the AUR and Flatpak at once; merged, ranked results with a Source column, per-source toggles, Hide installed, and Install that runs the right command for each source | `search standard`, `search aur`, `search flatpak` |
 | Browse | All repo packages, filter, details, install | `-Ssv`, `-Ssdi`, `install standard` |
 | Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs) | `-Ls`, `remove standard` |
 | Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
@@ -19,6 +20,9 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 | Settings | View/edit `config.json` keys | `config list`, `config set` |
 
 Right-click any list item for **Update** and **Remove**, wherever they apply: Update shows on the Updates tabs and on installed items with a pending update (`update standard|aur|flatpak <name>`; repo packages are a partial upgrade, which the CLI warns about), Remove on anything installed. The menu acts on the clicked row, or all selected rows.
+
+New search sources (e.g. prefix.dev) plug in through `shelly_qt/search_sources.py`: subclass `Source`
+and append it to `SOURCES`. AppImages aren't a source because Shelly has no AppImage catalogue search.
 
 Privileged operations run through `pkexec`, as the GTK app does.
 

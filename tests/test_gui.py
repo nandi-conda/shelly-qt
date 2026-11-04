@@ -353,3 +353,62 @@ def test_aur_search_menu(win, answers):
     assert ops[0].op.args == ["install", "aur", "paru"]
     finish(ops)
     assert menu_texts(menu_at(page.installed, 0))[0] == "Review PKGBUILD"
+
+
+def search_done(win):
+    wait_until(lambda: win.search_page.query and not win.search_page.pending)
+    return win.search_page
+
+
+def test_combined_search_merges_sources(win):
+    win.search_all("zed")
+    assert win.stack.currentWidget() is win.search_page
+    page = search_done(win)
+    rows = page.table.model.rows
+    assert [(r["Name"], r["_source"]) for r in rows] == [
+        ("zed", "repo"), ("Zed", "flatpak"), ("zed-git", "aur")]
+    assert "Repos: 1" in page.summary.text() and "AUR: 1" in page.summary.text()
+    page.toggles["aur"].setChecked(False)
+    assert page.table.proxy.rowCount() == 2
+    page.toggles["aur"].setChecked(True)
+    page.hide_installed.setChecked(True)
+    assert page.table.proxy.rowCount() == 3
+
+
+def test_combined_search_installs_per_source(win, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
+                        dialogs.protocol.answer_pkgbuild(q["QuestionId"], True)
+                        if q["$kind"] == "q.pkgbuilddiff"
+                        else dialogs.protocol.answer_transaction(q["QuestionId"], True))
+    win.search_all("zed")
+    page = search_done(win)
+    for i in range(3):
+        page.table.model.setData(page.table.model.index(i, 0), Qt.CheckState.Checked.value,
+                                 Qt.ItemDataRole.CheckStateRole)
+    page.flatpak_user.setChecked(True)
+    n = len(win.ops)
+    page.install()
+    ops = win.ops[n:]
+    assert sorted(d.op.args for d in ops) == sorted([
+        ["install", "standard", "zed"], ["install", "aur", "zed-git"],
+        ["install", "flatpak", "dev.zed.Zed", "--user"]])
+    finish(ops)
+
+
+def test_combined_search_reports_source_errors(win):
+    win.search_all("fail")
+    page = search_done(win)
+    assert "AUR RPC unreachable" in page.summary.text()
+    assert all(r["_source"] != "aur" for r in page.table.model.rows)
+
+
+def test_combined_search_marks_installed(win):
+    win.nav.setCurrentRow(3)  # load installed AUR packages
+    wait_until(lambda: len(win.pages[3].installed.model.rows) == 1)
+    win.search_all("yay")
+    page = search_done(win)
+    yay = next(r for r in page.table.model.rows if r["Name"] == "yay")
+    assert yay["Installed"] and yay["_source"] == "aur"
+    assert win.nav.currentRow() == -1
+    win.nav.setCurrentRow(0)
+    assert win.stack.currentWidget() is win.pages[0]

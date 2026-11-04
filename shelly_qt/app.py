@@ -8,9 +8,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
-from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox, QStackedWidget, QStatusBar,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QStackedWidget,
+                               QStatusBar, QVBoxLayout, QWidget)
 
 from . import __version__, cli
 from .dialogs import OperationDialog
@@ -18,6 +18,8 @@ from .links import install_url_handler
 from .openfile import Target, targets_from_argv
 from .pages import (AppImagePage, AurPage, BrowsePage, FlatpakPage, InstalledPage, SettingsPage,
                     UpdatesPage, UtilitiesPage)
+from .search_page import SearchPage
+from .search_sources import SOURCES
 
 ICONS = {
     "Browse": "system-search", "Installed": "drive-harddisk", "Updates": "system-software-update",
@@ -61,11 +63,24 @@ class MainWindow(QMainWindow):
             self.nav.addItem(item)
             self.stack.addWidget(p)
         self.nav.currentRowChanged.connect(self._switch)
+        # combined search: lives in the stack but not in the sidebar
+        self.search_page = SearchPage(self)
+        self.stack.addWidget(self.search_page)
+
+        self.search_box = QLineEdit()
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.addAction(QIcon.fromTheme("system-search"), QLineEdit.ActionPosition.LeadingPosition)
+        labels = ", ".join(s.label for s in SOURCES)
+        self.search_box.setPlaceholderText(f"Search all packages ({labels}) — press Enter   Ctrl+K")
+        self.search_box.returnPressed.connect(lambda: self.search_all(self.search_box.text()))
 
         central = QWidget()
-        lay = QHBoxLayout(central)
+        outer = QVBoxLayout(central)
+        outer.addWidget(self.search_box)
+        lay = QHBoxLayout()
         lay.addWidget(self.nav)
         lay.addWidget(self.stack, 1)
+        outer.addLayout(lay, 1)
         self.setCentralWidget(central)
 
         self.setStatusBar(QStatusBar())
@@ -76,6 +91,10 @@ class MainWindow(QMainWindow):
         refresh.setShortcut(QKeySequence.StandardKey.Refresh)
         refresh.triggered.connect(lambda: self.stack.currentWidget().refresh())
         self.addAction(refresh)
+        find = QAction("Search all packages", self)
+        find.setShortcuts([QKeySequence("Ctrl+K"), QKeySequence("Ctrl+Shift+F")])
+        find.triggered.connect(self.focus_search)
+        self.addAction(find)
         about = QAction("About", self)
         about.setShortcut("F1")
         about.triggered.connect(self.about)
@@ -87,8 +106,23 @@ class MainWindow(QMainWindow):
 
     # ---- helpers used by pages -------------------------------------------
     def _switch(self, i: int) -> None:
+        if i < 0:
+            return
         self.stack.setCurrentIndex(i)
         self.pages[i].activate()
+
+    def focus_search(self) -> None:
+        self.search_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.search_box.selectAll()
+
+    def search_all(self, text: str) -> None:
+        """Show the combined search page with results for ``text`` from every source."""
+        if not text.strip():
+            return
+        self.search_box.setText(text)
+        self.nav.setCurrentRow(-1)
+        self.stack.setCurrentWidget(self.search_page)
+        self.search_page.search(text)
 
     def status(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 8000)
@@ -112,6 +146,8 @@ class MainWindow(QMainWindow):
         for p in self.pages:
             if p.loaded:
                 p.refresh()
+        if self.search_page.query:
+            self.search_page.refresh()
 
     def run_op(self, title: str, args: list[str], privileged: bool, on_success=None) -> OperationDialog:
         d = OperationDialog(title, args, privileged)

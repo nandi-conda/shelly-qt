@@ -33,12 +33,17 @@ w.nav.setCurrentRow(2)
 wait(800)
 w.grab().save(str(out / "updates.png"))
 w.nav.setCurrentRow(3)
-w.pages[3].query.setText("yay")
+w.pages[3].query.setText("ya")
 w.pages[3].search()
 wait(800)
 w.pages[3].results.view.selectRow(0)
 wait(200)
 w.grab().save(str(out / "aur.png"))
+w.search_all("zed")
+wait(1000)
+w.search_page.table.view.selectRow(0)
+wait(600)
+w.grab().save(str(out / "search.png"))
 d = TransactionDialog({
     "$kind": "q.transaction", "QuestionId": "t", "Action": "install",
     "QuestionText": "Proceed with installation?",
