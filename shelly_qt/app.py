@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import signal
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
@@ -21,10 +22,25 @@ ICONS = {
 }
 
 
+ICON_DIR = Path(__file__).resolve().parent / "icons"
+
+
+def app_icon() -> QIcon:
+    """The Shelly-Qt icon: installed theme icon if present, else the bundled files."""
+    icon = QIcon()
+    for png in sorted(ICON_DIR.glob("shelly-qt-*.png")):
+        icon.addFile(str(png))
+    svg = ICON_DIR / "shelly-qt.svg"
+    if svg.exists():
+        icon.addFile(str(svg))
+    return QIcon.fromTheme("shelly-qt", icon)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Shelly")
+        self.setWindowIcon(app_icon())
         self.resize(1180, 760)
         self.ops: list[OperationDialog] = []
         self._busy = 0
@@ -133,6 +149,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
     app.setDesktopFileName("shelly-qt")
+    app.setWindowIcon(app_icon())
     install_sigint_handler(app)
     w = MainWindow()
     w.show()

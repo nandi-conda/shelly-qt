@@ -19,6 +19,9 @@ shelly-qt = "shelly_qt.app:main"
 [tool.setuptools]
 packages = ["shelly_qt"]
 
+[tool.setuptools.package-data]
+shelly_qt = ["icons/*.svg", "icons/*.png"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

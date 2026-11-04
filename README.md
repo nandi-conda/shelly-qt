@@ -31,7 +31,8 @@ just run            # start the GUI against the real `shelly` CLI
 just demo           # start it against tests/fake_shelly.py (no Arch needed)
 just test           # headless test suite
 just screenshots    # regenerate screenshots/
-just install-desktop  # add a shelly-qt launcher + .desktop entry under ~/.local
+just install-desktop  # add a shelly-qt launcher, .desktop entry and icon under ~/.local
+just icon          # regenerate shelly_qt/icons/ (SVG + PNG sizes) from scripts/make_icon.py
 ```
 
 `just` with no arguments lists every recipe. Without pixi, `pip install .` then `shelly-qt`
