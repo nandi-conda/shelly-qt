@@ -30,7 +30,7 @@ install-desktop:
     mkdir -p ~/.local/share/applications ~/.local/bin ~/.local/share/icons/hicolor/scalable/apps
     cp shelly_qt/icons/shelly-qt.svg ~/.local/share/icons/hicolor/scalable/apps/shelly-qt.svg
     for s in 16 22 24 32 48 64 128 256 512; do mkdir -p ~/.local/share/icons/hicolor/${s}x${s}/apps && cp shelly_qt/icons/shelly-qt-$s.png ~/.local/share/icons/hicolor/${s}x${s}/apps/shelly-qt.png; done
-    printf '#!/bin/sh\nexec pixi run --manifest-path "%s/pixi.toml" python -m shelly_qt "$@"\n' "{{justfile_directory()}}" > ~/.local/bin/shelly-qt
+    printf '#!/bin/sh\nexport SHELLY_QT_CWD="$PWD"\nexec pixi run --manifest-path "%s/pixi.toml" python -m shelly_qt "$@"\n' "{{justfile_directory()}}" > ~/.local/bin/shelly-qt
     chmod +x ~/.local/bin/shelly-qt
     cp shelly-qt.desktop ~/.local/share/applications/
     -gtk-update-icon-cache -q -t ~/.local/share/icons/hicolor

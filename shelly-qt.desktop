@@ -2,7 +2,8 @@
 Type=Application
 Name=Shelly-Qt
 Comment=Manage Arch Linux packages, AUR, Flatpak and AppImages
-Exec=shelly-qt
+Exec=shelly-qt %U
 Icon=shelly-qt
 Categories=System;PackageManager;Qt;
 Terminal=false
+MimeType=application/vnd.flatpak.ref;application/vnd.flatpak;application/vnd.flatpak.repo;application/vnd.appimage;application/x-iso9660-appimage;application/x-alpm-package;x-scheme-handler/appstream;x-scheme-handler/flatpak+https;

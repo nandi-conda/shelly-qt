@@ -263,3 +263,29 @@ def test_real_right_click_opens_menu_on_every_updates_tab(win):
         QApplication.sendEvent(vp, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, vp.mapToGlobal(pos)))
         wait_until(lambda: "texts" in seen)
         assert seen["texts"] and seen["texts"][-1].startswith("Remove")
+
+
+def test_open_flatpakref_goes_to_flatpak_page_and_installs(win, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QMessageBox
+    from shelly_qt.openfile import classify
+    from shelly_qt.pages import FlatpakPage
+
+    ref = tmp_path / "org.kde.krita.flatpakref"
+    ref.write_text("[Flatpak Ref]\nName=org.kde.krita\nTitle=Krita\nBranch=stable\n"
+                   "Url=https://dl.flathub.org/repo/\nIsRuntime=false\n")
+    shown = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: shown.append(self.text())
+                        or QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
+                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+    win.open_target(classify(str(ref)))
+    page = win.stack.currentWidget()
+    assert isinstance(page, FlatpakPage) and page.tabs.currentIndex() == 1
+    assert page.query.text() == "org.kde.krita"
+    assert "Krita" in shown[0]
+    d = win.ops[-1]
+    assert d.op.args == ["install", "flatpak", "--ref-file", str(ref)]
+    wait_until(lambda: d.exit_code is not None)
+    assert d.exit_code == 0
+    wait_until(lambda: page.results.current_row() is not None)
+    assert page.results.current_row()["app_id"] == "org.kde.krita"

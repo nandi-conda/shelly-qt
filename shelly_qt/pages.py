@@ -603,10 +603,21 @@ class FlatpakPage(Page):
         cli.query(["search", "flatpak", q, "--limit", "50"], self._searched,
                   parse=lambda t: protocol.last_data(t, {}))
 
+    def show_app(self, app_id: str, search: bool = True) -> None:
+        """Open the Search tab on <app_id> (from a .flatpakref or appstream:// link)."""
+        self.tabs.setCurrentIndex(1)
+        self.query.setText(app_id)
+        self._select_id = app_id
+        if search:
+            self.search()
+
     def _searched(self, res, err) -> None:
         self.main.idle(err)
         if not err:
             self.results.set_rows((res or {}).get("hits", []) if isinstance(res, dict) else res or [])
+            want, self._select_id = getattr(self, "_select_id", None), None
+            if want:
+                self.results.select_where(lambda r: (r.get("app_id") or r.get("id")) == want)
 
     def install(self) -> None:
         rows = self.results.targets()

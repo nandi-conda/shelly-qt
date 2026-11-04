@@ -40,6 +40,13 @@ just icon          # regenerate shelly_qt/icons/ (SVG + PNG sizes) from scripts/
 `just` with no arguments lists every recipe. Without pixi, `pip install .` then `shelly-qt`
 works too.
 
+## Opening files
+
+After `just install-desktop`, Shelly-Qt is offered under "Open with" for `.flatpakref`, `.flatpak`
+bundles, `.AppImage` files, `.pkg.tar.*` packages and `appstream://` / `flatpak+https://` links
+(or run `shelly-qt <file>`). A `.flatpakref` opens the Flatpak page on that app and asks to install
+it with `shelly install flatpak --ref-file`.
+
 Environment overrides:
 
 - `SHELLY_BIN` — command used for the CLI (default `shelly`), may include args.

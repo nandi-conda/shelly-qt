@@ -253,6 +253,18 @@ class PackageTable(QWidget):
     def current_row(self) -> dict | None:
         return self.row_at(self.view.currentIndex())
 
+    def select_where(self, pred: Callable[[dict], bool]) -> dict | None:
+        """Select and scroll to the first visible row matching ``pred``."""
+        for r in range(self.proxy.rowCount()):
+            idx = self.proxy.index(r, 0)
+            row = self.row_at(idx)
+            if row is not None and pred(row):
+                self.view.selectRow(r)
+                self.view.setCurrentIndex(idx)
+                self.view.scrollTo(idx)
+                return row
+        return None
+
     def targets(self) -> list[dict]:
         """Checked rows, or the selected rows when nothing is checked."""
         rows = self.model.checked_rows()
