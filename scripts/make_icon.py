@@ -48,7 +48,7 @@ def nautilus_svg() -> str:
         # bow backwards (against growth direction)
         nx, ny = dy / L, -dx / L
         q = (mx + nx * L * 0.28, my + ny * L * 0.28)
-        w = max(3.0, 7.5 * L / 120)
+        w = max(3.0, 6.5 * L / 120)
         septa.append(f'<path d="M{a[0]:.1f},{a[1]:.1f} Q{q[0]:.1f},{q[1]:.1f} {c[0]:.1f},{c[1]:.1f}" stroke-width="{w:.1f}"/>')
         t -= 0.48
     septa = "".join(septa)
@@ -56,41 +56,26 @@ def nautilus_svg() -> str:
   <title>Shelly-Qt</title>
   <defs>
     <radialGradient id="bg" cx="0.5" cy="0.45" r="0.75">
-      <stop offset="0" stop-color="#2a1660"/>
-      <stop offset="0.55" stop-color="#140b33"/>
-      <stop offset="1" stop-color="#05040e"/>
+      <stop offset="0" stop-color="#2b2748"/>
+      <stop offset="0.6" stop-color="#1c1a30"/>
+      <stop offset="1" stop-color="#121120"/>
     </radialGradient>
     <linearGradient id="neon" x1="0.1" y1="0.1" x2="0.9" y2="0.9">
-      <stop offset="0" stop-color="#2af6ff"/>
-      <stop offset="0.5" stop-color="#8c5bff"/>
-      <stop offset="1" stop-color="#ff3fc9"/>
+      <stop offset="0" stop-color="#7fd8d4"/>
+      <stop offset="0.5" stop-color="#9d8fe0"/>
+      <stop offset="1" stop-color="#e09cc4"/>
     </linearGradient>
     <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2af6ff" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#ff3fc9" stop-opacity="0.22"/>
+      <stop offset="0" stop-color="#7fd8d4" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#e09cc4" stop-opacity="0.12"/>
     </linearGradient>
-    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
-      <feGaussianBlur stdDeviation="10"/>
-    </filter>
-    <clipPath id="tile"><rect x="24" y="24" width="464" height="464" rx="104"/></clipPath>
   </defs>
   <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bg)"/>
-  <g clip-path="url(#tile)" stroke="#ffffff" stroke-opacity="0.05" stroke-width="2">
-    <path d="M24,120 H488 M24,216 H488 M24,312 H488 M24,408 H488 M120,24 V488 M216,24 V488 M312,24 V488 M408,24 V488"/>
-  </g>
   <path d="{silhouette}" fill="url(#body)"/>
   <g fill="none" stroke="url(#neon)" stroke-linecap="round" stroke-linejoin="round">
-    <g filter="url(#glow)" opacity="0.9">
-      <path d="{silhouette}" stroke-width="22"/>
-      <path d="{inner}" stroke-width="14"/>
-    </g>
-    <path d="{silhouette}" stroke-width="13"/>
-    <path d="{inner}" stroke-width="9"/>
+    <path d="{silhouette}" stroke-width="12"/>
+    <path d="{inner}" stroke-width="8"/>
     {septa}
-  </g>
-  <g fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-linecap="round" stroke-linejoin="round">
-    <path d="{silhouette}" stroke-width="3.5"/>
-    <path d="{inner}" stroke-width="2.5"/>
   </g>
 </svg>
 '''
