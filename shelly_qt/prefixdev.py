@@ -99,7 +99,9 @@ class Client(QObject):
     def _graphql_search(self, text: str, limit: int, done: Done) -> QNetworkReply:
         query = (
             "query($q: String!, $n: Int!) { channel(name: \"conda-forge\") { packages("
-            "filters: {name: {contains: $q}}, limit: $n) { page { name summary latestVersion { version } } } } }"
+            "filters: {name: {contains: $q}}, limit: $n, "
+            "orderBy: {bySimilarity: {field: NAME, direction: DESC, matches: $q}}) "
+            "{ page { name summary latestVersion { version } } } } }"
         )
         req = QNetworkRequest(QUrl(GRAPHQL))
         req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
