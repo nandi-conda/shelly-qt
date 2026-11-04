@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidget, Q
 
 from . import __version__, cli
 from .dialogs import OperationDialog
+from .links import install_url_handler
 from .pages import (AppImagePage, AurPage, BrowsePage, FlatpakPage, InstalledPage, SettingsPage,
                     UpdatesPage, UtilitiesPage)
 
@@ -149,6 +150,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
     app.setDesktopFileName("shelly-qt")
+    install_url_handler()
     app.setWindowIcon(app_icon())
     install_sigint_handler(app)
     w = MainWindow()
