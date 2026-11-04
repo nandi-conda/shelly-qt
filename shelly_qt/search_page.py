@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QCheckBox, QLabel, QVBoxLayout
 
 from . import cli, protocol
 from .pages import Page, package_details, what
+from .ranking import match_column
 from .search_sources import SOURCES, ranked, source
 from .widgets import PackageTable, key
 
@@ -31,8 +32,9 @@ class SearchPage(Page):
 
         self.table = PackageTable([
             ("Name", key("Name")), ("Version", key("Version")), ("Source", source_label),
-            ("Installed", key("Installed", False)), ("Description", key("Description")),
+            ("Installed", key("Installed", False)), match_column(), ("Description", key("Description")),
         ], placeholder="Filter results…")
+        self.match_col = 4
         self.toggles: dict[str, QCheckBox] = {}
         for s in SOURCES:
             cb = QCheckBox(s.label)
@@ -62,7 +64,7 @@ class SearchPage(Page):
         lay = QVBoxLayout(self)
         lay.addWidget(self.summary)
         lay.addWidget(self.table, 1)
-        self.table.view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # keep relevance order
+        self.sort_by_relevance()
         self._apply()
 
     # ---- searching -------------------------------------------------------
@@ -81,10 +83,14 @@ class SearchPage(Page):
             self.main.idle()
         self.pending = set()
         self.table.set_rows([])
-        self.table.view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
+        self.sort_by_relevance()
         for s in self.enabled():
             self._run(s)
         self._update_summary()
+
+    def sort_by_relevance(self) -> None:
+        """Most relevant first; clicking the Match header does the same."""
+        self.table.view.sortByColumn(self.match_col, Qt.SortOrder.AscendingOrder)
 
     def _run(self, s) -> None:
         self.searched.add(s.key)

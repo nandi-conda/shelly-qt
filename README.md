@@ -22,6 +22,13 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 
 Right-click any list item for **Update** and **Remove**, wherever they apply: Update shows on the Updates tabs and on installed items with a pending update (`update standard|aur|flatpak <name>`; repo packages are a partial upgrade, which the CLI warns about), Remove on anything installed. The menu acts on the clicked row, or all selected rows.
 
+Search results are ranked by relevance (`shelly_qt/ranking.py`), used by the combined search and the
+AUR, Flathub and prefix.dev pages: exact name, then name prefix, then a word in the name, then substring,
+then description-only matches; `-debug`/`-git`/`-docs`/`lib…`/`python-…` variants you didn't type sink;
+official repos, installed packages, AUR votes, Flathub installs and prefix.dev downloads break ties. The
+**Match** column shows why a row matched; click its header to get back to relevance order after sorting
+by another column.
+
 New search sources (e.g. prefix.dev) plug in through `shelly_qt/search_sources.py`: subclass `Source`
 and append it to `SOURCES`. AppImages aren't a source because Shelly has no AppImage catalogue search.
 

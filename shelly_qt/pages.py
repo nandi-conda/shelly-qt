@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, Q
                                QDialogButtonBox)
 
 from . import cli, protocol
+from .ranking import match_column, rank_rows
 from .widgets import PackageTable, details_html, key
 
 if TYPE_CHECKING:
@@ -441,7 +442,9 @@ class AurPage(Page):
         row.addWidget(self.query, 1)
         row.addWidget(go)
         sl.addLayout(row)
-        self.results = PackageTable(AUR_COLS, placeholder="Filter results…")
+        self.results = PackageTable(AUR_COLS[:-1] + [match_column()] + AUR_COLS[-1:],
+                                    placeholder="Filter results…")
+        self.results.view.sortByColumn(len(AUR_COLS) - 1, Qt.SortOrder.AscendingOrder)  # relevance
         self.results.add_button("Review PKGBUILD", lambda: self.preview(self.results))
         self.results.add_button("Install", self.install)
         self.results.add_context_action("Review PKGBUILD", lambda rows: self.preview(self.results),
@@ -493,7 +496,7 @@ class AurPage(Page):
     def _searched(self, res, err) -> None:
         self.main.idle(err)
         if not err:
-            self.results.set_rows(res or [])
+            self.results.set_rows(rank_rows(res or [], self.query.text(), "aur"))
 
     def preview(self, table: PackageTable) -> None:
         row = table.current_row() or (table.targets() or [None])[0]
@@ -601,7 +604,7 @@ class PrefixDevPage(Page):
             ("Name", key("name")), ("Channel", key("channel")), ("Latest", key("latest")),
             ("In repo", lambda r: r.get("available") or ""),
             ("Installed", lambda r: r.get("installed") or ""),
-            ("Summary", key("summary")),
+            match_column(), ("Summary", key("summary")),
         ], placeholder="Filter results…")
         self.results.add_button("Install", self.install, "Add to the [prefix] repo and install")
         self.results.add_context_action(lambda rows: f"Install {what(rows)}", self.install_rows,
@@ -610,8 +613,8 @@ class PrefixDevPage(Page):
                                         lambda rows: remove_packages(self, [{"Name": r["name"]} for r in rows]),
                                         lambda rows: all(r.get("installed") for r in rows))
         self.results.current_changed.connect(lambda r: r and self.results.detail.setHtml(prefix_details(r)))
-        # keep prefix.dev's relevance order until the user clicks a column header
-        self.results.view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
+        # most relevant first; click the Match header to get back to it
+        self.results.view.sortByColumn(5, Qt.SortOrder.AscendingOrder)
         lay.addWidget(self.results, 1)
         self.hint = QLabel(f"Packages come from prefix.dev channels via the prefix-alpm server at "
                            f"<code>{server_url()}</code> and install under <code>/opt/prefix</code>.")
@@ -670,7 +673,7 @@ class PrefixDevPage(Page):
         if err:
             self.main.status("prefix.dev search failed: " + err)
             return
-        rows = res or []
+        rows = rank_rows(res or [], q, "prefix")
         offline = any(r.get("offline") for r in rows)
         self._status(None, "offline" if offline else None)
         self._annotate(rows)
@@ -758,8 +761,9 @@ class FlatpakPage(Page):
             ("Name", key("name")), ("App ID", lambda r: r.get("app_id") or r.get("id", "")),
             ("Developer", key("developer_name")),
             ("Verified", key("verification_verified", False)),
-            ("License", key("project_license")), ("Summary", key("summary")),
+            ("License", key("project_license")), match_column(), ("Summary", key("summary")),
         ], placeholder="Filter results…")
+        self.results.view.sortByColumn(5, Qt.SortOrder.AscendingOrder)  # relevance
         self.user_scope = QCheckBox("Install for current user only")
         self.results.toolbar.addWidget(self.user_scope)
         self.results.add_button("Install", self.install)
@@ -815,7 +819,8 @@ class FlatpakPage(Page):
     def _searched(self, res, err) -> None:
         self.main.idle(err)
         if not err:
-            self.results.set_rows((res or {}).get("hits", []) if isinstance(res, dict) else res or [])
+            hits = (res or {}).get("hits", []) if isinstance(res, dict) else res or []
+            self.results.set_rows(rank_rows(hits, self.query.text(), "flatpak"))
             want, self._select_id = getattr(self, "_select_id", None), None
             if want:
                 self.results.select_where(lambda r: (r.get("app_id") or r.get("id")) == want)

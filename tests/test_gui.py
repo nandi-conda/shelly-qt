@@ -518,3 +518,14 @@ def test_prefixdev_searches_every_channel(prefix_server, monkeypatch):
             "shelly_qt.pages", fromlist=["prefix_details"]).prefix_details(cf)
     finally:
         w.close()
+
+
+def test_combined_search_relevance_sort_restorable(win):
+    win.search_all("zed")
+    page = search_done(win)
+    first = lambda: page.table.row_at(page.table.proxy.index(0, 0))["Name"]  # noqa: E731
+    assert first() == "zed"
+    page.table.view.sortByColumn(0, Qt.SortOrder.DescendingOrder)  # Name, Z..a
+    assert first() != "zed"
+    page.table.view.sortByColumn(page.match_col, Qt.SortOrder.AscendingOrder)
+    assert first() == "zed" and page.table.model.headerData(page.match_col, Qt.Orientation.Horizontal) == "Match"

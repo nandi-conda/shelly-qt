@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 from . import cli, protocol
+from .ranking import rank_rows
 
 if TYPE_CHECKING:
     from .app import MainWindow
@@ -46,10 +47,6 @@ class Source:
         from .widgets import details_html
         return details_html(f"{row.get('Name', '')} {row.get('Version', '')}",
                             [("Source", self.label)], row.get("Description") or "")
-
-    def popularity(self, row: dict) -> float:
-        """Tie-breaker for ranking among equally relevant names (higher first)."""
-        return 0.0
 
 
 class CliSource(Source):
@@ -129,11 +126,6 @@ class AurSource(CliSource):
         from .pages import aur_details
         return aur_details(row)
 
-    def popularity(self, row: dict) -> float:
-        try:
-            return float(row.get("Popularity") or 0) + float(row.get("NumVotes") or 0) / 1000
-        except (TypeError, ValueError):
-            return 0.0
 
 
 class FlatpakSource(CliSource):
@@ -242,26 +234,6 @@ def source(key: str) -> Source | None:
     return next((s for s in SOURCES if s.key == key), None)
 
 
-def relevance(row: dict, query: str) -> tuple:
-    """Sort key: exact name, then prefix, then substring, then description-only matches."""
-    q = query.strip().lower()
-    name = str(row.get("Name") or "").lower()
-    ident = str(row.get("AppId") or "").lower()
-    if name == q or ident == q or ident.endswith("." + q):
-        rank = 0
-    elif name.startswith(q):
-        rank = 1
-    elif q in name or q in ident:
-        rank = 2
-    elif all(w in name for w in q.split()):
-        rank = 3
-    else:
-        rank = 4
-    src = source(row.get("_source", ""))
-    pop = src.popularity(row) if src else 0.0
-    order = SOURCES.index(src) if src in SOURCES else len(SOURCES)
-    return (rank, -pop, len(name), name, order)
-
-
 def ranked(rows: list[dict], query: str) -> list[dict]:
-    return sorted(rows, key=lambda r: relevance(r, query))
+    """Rows from any mix of sources, most relevant first (see :mod:`.ranking`)."""
+    return rank_rows(rows, query)

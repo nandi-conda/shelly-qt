@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLab
                                QMenu, QPushButton, QSplitter, QStyleOptionViewItem, QTableView,
                                QTextBrowser, QToolTip, QVBoxLayout, QWidget)
 
-Column = tuple[str, Callable[[dict], Any]]
+# (header, value) or (header, value, sort_value): the optional third item sorts the column
+Column = tuple
 
 SortRole = Qt.ItemDataRole.UserRole + 1
 
@@ -67,6 +68,12 @@ class RowModel(QAbstractTableModel):
                 return ", ".join(map(str, v))
             return str(v)
         if role == SortRole:
+            col = self.columns[c]
+            if len(col) > 2:
+                try:
+                    return col[2](self.rows[r])
+                except Exception:
+                    return 0
             v = self._value(r, c)
             return v if isinstance(v, (int, float)) else str(v).lower()
         if role == Qt.ItemDataRole.CheckStateRole and c == 0 and self.checkable:
