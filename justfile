@@ -47,7 +47,7 @@ icon:
     QT_QPA_PLATFORM=offscreen pixi run python scripts/make_icon.py
 
 # Build dist/Shelly-Qt-<version>-<arch>.AppImage (+ .zsync) from the pixi `appimage` env
-appimage version=`git describe --tags --always --dirty 2>/dev/null | sed 's/^v//'`:
+appimage version=`git describe --tags --exclude continuous --always --dirty 2>/dev/null | sed 's/^v//'`:
     #!/usr/bin/env bash
     set -euo pipefail
     arch=${ARCH:-$(uname -m)}

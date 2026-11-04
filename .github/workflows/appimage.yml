@@ -47,7 +47,7 @@ jobs:
             version=${GITHUB_REF_NAME#v}
             channel=latest
           else
-            version=$(git describe --tags --always | sed 's/^v//')
+            version=$(git describe --tags --exclude continuous --always | sed 's/^v//')
             channel=continuous
           fi
           owner=${GITHUB_REPOSITORY%%/*}
