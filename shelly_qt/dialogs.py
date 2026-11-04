@@ -40,6 +40,7 @@ class TransactionDialog(QDialog):
             for c, v in enumerate(vals):
                 table.setItem(r, c, QTableWidgetItem(str(v)))
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().hide()
         lay.addWidget(table)

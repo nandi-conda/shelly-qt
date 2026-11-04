@@ -4,11 +4,11 @@ from __future__ import annotations
 import html
 from typing import Any, Callable, Sequence
 
-from PySide6.QtCore import (QAbstractTableModel, QItemSelectionModel, QModelIndex,
+from PySide6.QtCore import (QAbstractTableModel, QEvent, QItemSelectionModel, QModelIndex,
                             QSortFilterProxyModel, Qt, Signal)
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QMenu, QPushButton, QSplitter, QTableView, QTextBrowser, QVBoxLayout,
-                               QWidget)
+                               QMenu, QPushButton, QSplitter, QStyleOptionViewItem, QTableView,
+                               QTextBrowser, QToolTip, QVBoxLayout, QWidget)
 
 Column = tuple[str, Callable[[dict], Any]]
 
@@ -127,6 +127,31 @@ class FilterProxy(QSortFilterProxyModel):
         return all(part in hay for part in self._needle.split())
 
 
+# Columns that hold free text and should soak up spare width, in order of preference.
+STRETCH_TITLES = ("Description", "Summary", "Path")
+MAX_FIT_WIDTH = 360     # auto-fit never makes a column wider than this
+MIN_STRETCH_WIDTH = 160  # the stretching column never gets narrower than this
+FIT_SAMPLE_ROWS = 2000
+
+
+class FitTableView(QTableView):
+    """QTableView that shows the full cell text as a tooltip when it is elided."""
+
+    def viewportEvent(self, event) -> bool:
+        if event.type() == QEvent.Type.ToolTip:
+            idx = self.indexAt(event.pos())
+            if idx.isValid():
+                text = str(idx.data() or "")
+                extra = idx.data(Qt.ItemDataRole.ToolTipRole)
+                if text and self.sizeHintForIndex(idx).width() > self.columnWidth(idx.column()):
+                    tip = html.escape(text)
+                    if extra and extra != text:
+                        tip += "<br><br>" + html.escape(str(extra))
+                    QToolTip.showText(event.globalPos(), tip, self.viewport(), self.visualRect(idx))
+                    return True
+        return super().viewportEvent(event)
+
+
 class PackageTable(QWidget):
     """Filter box + sortable table + detail pane."""
 
@@ -145,7 +170,7 @@ class PackageTable(QWidget):
         self.filter.setClearButtonEnabled(True)
         self.filter.textChanged.connect(self.proxy.set_needle)
 
-        self.view = QTableView()
+        self.view = FitTableView()
         self.view.setModel(self.proxy)
         self.view.setSortingEnabled(True)
         self.view.sortByColumn(0, Qt.SortOrder.AscendingOrder)
@@ -157,7 +182,16 @@ class PackageTable(QWidget):
         self.view.setWordWrap(False)
         hh = self.view.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        hh.setStretchLastSection(True)
+        # Don't let the last column (often a short one like Size) hog the spare width; a
+        # text column gets it instead (see _fill_width).
+        hh.setStretchLastSection(False)
+        hh.setMinimumSectionSize(36)
+        titles = [c[0] for c in columns]
+        self.stretch_col = next((titles.index(t) for t in STRETCH_TITLES if t in titles), 0)
+        self._user_sized: set[int] = set()
+        self._sizing = False
+        hh.sectionResized.connect(self._section_resized)
+        self.view.viewport().installEventFilter(self)
         self.view.selectionModel().currentRowChanged.connect(self._current)
 
         self.detail = QTextBrowser()
@@ -228,11 +262,56 @@ class PackageTable(QWidget):
 
     def set_rows(self, rows: list[dict]) -> None:
         self.model.set_rows(rows)
-        self.view.resizeColumnsToContents()
-        for c in range(self.model.columnCount()):
-            if self.view.columnWidth(c) > 320:
-                self.view.setColumnWidth(c, 320)
+        self.fit_columns()
         self.detail.clear()
+
+    # -- column sizing -------------------------------------------------------------------
+    # QTableView.resizeColumnsToContents() only measures the rows that are currently visible
+    # (and passes the filter), so loading data while the filter matched nothing, or with only
+    # short names on screen, squeezed columns down to their header text ("Adw…", "org.…").
+    # Measure every row of the source model ourselves instead.
+
+    def column_fit_width(self, col: int) -> int:
+        hh = self.view.horizontalHeader()
+        width = hh.sectionSizeFromContents(col).width()
+        opt = QStyleOptionViewItem()
+        self.view.initViewItemOption(opt)
+        delegate = self.view.itemDelegate()
+        for r in range(min(self.model.rowCount(), FIT_SAMPLE_ROWS)):
+            width = max(width, delegate.sizeHint(opt, self.model.index(r, col)).width())
+        return width + 8
+
+    def fit_columns(self) -> None:
+        self._sizing = True
+        try:
+            for c in range(self.model.columnCount()):
+                if c not in self._user_sized:
+                    self.view.setColumnWidth(c, min(self.column_fit_width(c), MAX_FIT_WIDTH))
+        finally:
+            self._sizing = False
+        self._fill_width()
+
+    def _fill_width(self) -> None:
+        """Give leftover horizontal space to the text column instead of the last one."""
+        c = self.stretch_col
+        if c in self._user_sized or c >= self.model.columnCount():
+            return
+        others = sum(self.view.columnWidth(i) for i in range(self.model.columnCount()) if i != c)
+        want = max(min(self.column_fit_width(c), MAX_FIT_WIDTH), MIN_STRETCH_WIDTH,
+                   self.view.viewport().width() - others)
+        if want != self.view.columnWidth(c):
+            self._sizing = True
+            self.view.setColumnWidth(c, want)
+            self._sizing = False
+
+    def _section_resized(self, col: int, _old: int, _new: int) -> None:
+        if not self._sizing:  # the user dragged a divider: keep their width from now on
+            self._user_sized.add(col)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.view.viewport() and event.type() == QEvent.Type.Resize:
+            self._fill_width()
+        return super().eventFilter(obj, event)
 
     def _update_count(self, *_) -> None:
         n, shown, sel = len(self.model.rows), self.proxy.rowCount(), len(self.model.checked)
