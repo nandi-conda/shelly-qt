@@ -604,6 +604,8 @@ class PrefixDevPage(Page):
                                         lambda rows: remove_packages(self, [{"Name": r["name"]} for r in rows]),
                                         lambda rows: all(r.get("installed") for r in rows))
         self.results.current_changed.connect(lambda r: r and self.results.detail.setHtml(prefix_details(r)))
+        # keep prefix.dev's relevance order until the user clicks a column header
+        self.results.view.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         lay.addWidget(self.results, 1)
         self.hint = QLabel(f"Packages come from conda-forge via the prefix-alpm server at "
                            f"<code>{server_url()}</code> and install under <code>/opt/prefix</code>.")
