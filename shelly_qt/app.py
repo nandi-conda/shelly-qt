@@ -132,6 +132,15 @@ class MainWindow(QMainWindow):
                           f"manager.</p><p>CLI: <code>{' '.join(cli.shelly_bin())}</code></p>")
 
 
+def desktop_entry_installed(app_id: str) -> bool:
+    """True if <app_id>.desktop is in an XDG applications dir (as the portal sees it)."""
+    import os
+    home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
+    dirs = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":"),
+            "/usr/local/share", "/usr/share"]
+    return any((Path(d) / "applications" / f"{app_id}.desktop").is_file() for d in dirs if d)
+
+
 def install_sigint_handler(app: QApplication) -> QTimer:
     """Quit cleanly on Ctrl+C in the launching terminal.
 
@@ -149,7 +158,10 @@ def install_sigint_handler(app: QApplication) -> QTimer:
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
-    app.setDesktopFileName("shelly-qt")
+    if desktop_entry_installed("shelly-qt"):
+        # Only claim the app id when its .desktop file exists; otherwise the
+        # xdg-desktop-portal registry rejects it with a startup warning.
+        app.setDesktopFileName("shelly-qt")
     install_url_handler()
     app.setWindowIcon(app_icon())
     install_sigint_handler(app)
