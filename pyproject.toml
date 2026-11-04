@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shelly-qt"
+version = "0.1.0"
+description = "PySide6 front end for the Shelly (Shelly-ALPM) Arch Linux package manager"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = ["PySide6>=6.5"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+shelly-qt = "shelly_qt.app:main"
+
+[tool.setuptools]
+packages = ["shelly_qt"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
