@@ -14,7 +14,7 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 | Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs) | `-Ls`, `remove standard` |
 | Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
 | AUR | Search, PKGBUILD preview, build+install, installed list, remove | `search aur`, `list aur`, `install/remove aur` |
-| prefix.dev | Live search of conda-forge as you type (relevance-ranked), shows what the `[prefix]` repo offers and what's installed, Install adds the package to a [prefix-alpm](https://fileapi.fastapicloud.dev/git/smelly/prefix-alpm.git) server, syncs and installs under `/opt/prefix`. Without a server it still searches prefix.dev directly | prefix-alpm `/search`, `/add`; `sync --force`, `install standard` |
+| prefix.dev | Live search of every public prefix.dev channel as you type (relevance-ranked, Channel column; installs from the chosen channel), shows what the `[prefix]` repo offers and what's installed, Install adds the package to a [prefix-alpm](https://fileapi.fastapicloud.dev/git/smelly/prefix-alpm.git) server, syncs and installs under `/opt/prefix`. Without a server it still searches prefix.dev directly | prefix-alpm `/search`, `/add`; `sync --force`, `install standard` |
 | Flatpak | Installed apps, Flathub search, install (system/user), remove, update | `-Lf`, `search flatpak`, `install/remove flatpak` |
 | AppImage | List, check/upgrade, install from file, remove | `list appimage`, `list-updates appimage`, … |
 | Maintenance | Sync, remove orphans, clean cache, repair DB, fix permissions, install local package | `purify`, `utility` |
