@@ -35,6 +35,12 @@ install-desktop:
     cp shelly-qt.desktop ~/.local/share/applications/
     -gtk-update-icon-cache -q -t ~/.local/share/icons/hicolor
     -update-desktop-database -q ~/.local/share/applications
+    just set-default
+
+# Make Shelly-Qt the default app for Flatpak refs/bundles, AppImages and appstream:// links
+set-default:
+    -xdg-mime default shelly-qt.desktop application/vnd.flatpak.ref application/vnd.flatpak application/vnd.appimage application/x-iso9660-appimage x-scheme-handler/appstream x-scheme-handler/flatpak+https
+    @echo "application/vnd.flatpak.ref -> $(xdg-mime query default application/vnd.flatpak.ref 2>/dev/null)"
 
 # Regenerate the app icon (SVG + PNG sizes) in shelly_qt/icons/
 icon:

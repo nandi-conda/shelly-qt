@@ -44,7 +44,8 @@ works too.
 
 After `just install-desktop`, Shelly-Qt is offered under "Open with" for `.flatpakref`, `.flatpak`
 bundles, `.AppImage` files, `.pkg.tar.*` packages and `appstream://` / `flatpak+https://` links
-(or run `shelly-qt <file>`). A `.flatpakref` opens the Flatpak page on that app and asks to install
+(or run `shelly-qt <file>`). It also makes Shelly-Qt the default for Flatpak refs/bundles, AppImages
+and those links (`just set-default`), so double-clicking them opens Shelly-Qt rather than the GTK Shelly app. A `.flatpakref` opens the Flatpak page on that app and asks to install
 it with `shelly install flatpak --ref-file`.
 
 Environment overrides:
