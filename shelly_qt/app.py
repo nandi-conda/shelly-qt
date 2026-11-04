@@ -1,9 +1,10 @@
 """Main window."""
 from __future__ import annotations
 
+import signal
 import sys
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
                                QMainWindow, QMessageBox, QStackedWidget, QStatusBar, QWidget)
@@ -114,10 +115,25 @@ class MainWindow(QMainWindow):
                           f"manager.</p><p>CLI: <code>{' '.join(cli.shelly_bin())}</code></p>")
 
 
+def install_sigint_handler(app: QApplication) -> QTimer:
+    """Quit cleanly on Ctrl+C in the launching terminal.
+
+    Python only runs signal handlers between bytecodes, and Qt's C++ event loop
+    never returns to Python on its own, so a SIGINT would sit unhandled. A cheap
+    periodic timer hands control back to the interpreter so the handler fires.
+    """
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    timer = QTimer(app)
+    timer.timeout.connect(lambda: None)
+    timer.start(200)
+    return timer
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
     app.setDesktopFileName("shelly-qt")
+    install_sigint_handler(app)
     w = MainWindow()
     w.show()
     return app.exec()

@@ -130,3 +130,17 @@ def test_operation_window_is_standalone(win, monkeypatch):
     assert d.windowModality() == Qt.WindowModality.NonModal
     wait_until(lambda: d.exit_code is not None)
     d.close()
+
+
+def test_sigint_quits_event_loop():
+    import signal
+    from shelly_qt.app import install_sigint_handler
+    old = signal.getsignal(signal.SIGINT)
+    timer = install_sigint_handler(app)
+    try:
+        QTimer.singleShot(100, lambda: os.kill(os.getpid(), signal.SIGINT))
+        QTimer.singleShot(5000, lambda: app.exit(99))  # safety net
+        assert app.exec() == 0
+    finally:
+        timer.stop()
+        signal.signal(signal.SIGINT, old)
