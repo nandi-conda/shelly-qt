@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, QDialog,
-                               QDialogButtonBox, QMenu)
+                               QDialogButtonBox)
 
 from . import cli, protocol
 from .widgets import PackageTable, details_html, key
@@ -26,6 +26,74 @@ def ts(v) -> str:
         return dt.datetime.fromtimestamp(int(v)).strftime("%Y-%m-%d") if v else ""
     except Exception:
         return str(v)
+
+
+def what(rows: list[dict], noun: str = "packages") -> str:
+    """'firefox' for one row, '3 packages' for several."""
+    if len(rows) == 1:
+        r = rows[0]
+        return str(r.get("DesktopName") or r.get("Name") or r.get("Id") or "")
+    return f"{len(rows)} {noun}"
+
+
+def confirm(parent, title: str, text: str) -> bool:
+    return QMessageBox.question(parent, title, text,
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
+
+
+def remove_packages(page: "Page", rows: list[dict], backend: str = "standard") -> None:
+    """Remove repo (``standard``) or ``aur`` packages after asking for removal options."""
+    if not page.need_selection(rows):
+        return
+    opts = RemoveOptions(page.names(rows), page, aur=backend == "aur")
+    if opts.exec():
+        kind = "AUR package(s)" if backend == "aur" else "package(s)"
+        page.main.run_op(f"Removing {len(rows)} {kind}",
+                         ["remove", backend, *page.names(rows), *opts.flags()], True,
+                         page.main.refresh_all)
+
+
+def update_packages(page: "Page", rows: list[dict], backend: str) -> None:
+    """Update just these packages: ``standard`` (partial upgrade, the CLI warns), ``aur`` or ``flatpak``."""
+    if not page.need_selection(rows):
+        return
+    if backend == "flatpak":
+        for r in rows:
+            target = r.get("Id") or r.get("Name")
+            if target:
+                page.main.run_op(f"Updating {what([r])}", ["update", "flatpak", target], True,
+                                 page.main.refresh_all)
+        return
+    page.main.run_op(f"Updating {what(rows)}", ["update", backend, *page.names(rows)], True,
+                     page.main.refresh_all)
+
+
+def has_update(page: "Page", backend: str) -> Callable[[list[dict]], bool]:
+    """Predicate: every row has a pending update, per the Updates page's last check."""
+    field = "Id" if backend == "flatpak" else "Name"
+
+    def check(rows: list[dict]) -> bool:
+        pending = page.main.pages[2].pending.get(backend, set())
+        return bool(rows) and all(r.get(field) in pending for r in rows)
+    return check
+
+
+def remove_flatpaks(page: "Page", rows: list[dict], remove_config: bool = False) -> None:
+    if not page.need_selection(rows):
+        return
+    if not confirm(page, "Remove Flatpak", f"Remove {', '.join(what([r]) for r in rows)}?\n"
+                   "Unused runtimes will be removed too."):
+        return
+    for r in rows:
+        target = r.get("Id") or r.get("Name")
+        if not target:
+            continue
+        args = ["remove", "flatpak", target]
+        if remove_config:
+            args.append("--remove-config")
+        args.append("--remove-unused")
+        page.main.run_op(f"Removing {what([r])}", args, False, page.main.refresh_all)
 
 
 class Page(QWidget):
@@ -115,6 +183,14 @@ class BrowsePage(_DetailMixin, Page):
         self.not_installed.toggled.connect(self._apply)
         self.table.add_button("Install", self.install, "Install checked packages from the repositories")
         self.table.add_button("Refresh", self.refresh)
+        self.table.add_context_action(lambda rows: f"Install {what(rows)}", self.install_rows,
+                                      lambda rows: not any(r.get("Installed") for r in rows))
+        self.table.add_context_action(lambda rows: f"Update {what(rows)} (partial upgrade)…",
+                                      lambda rows: update_packages(self, rows, "standard"),
+                                      has_update(self, "standard"))
+        self.table.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                      lambda rows: remove_packages(self, rows),
+                                      lambda rows: all(r.get("Installed") for r in rows))
         self.table.current_changed.connect(self._show_details)
         QVBoxLayout(self).addWidget(self.table)
 
@@ -132,7 +208,9 @@ class BrowsePage(_DetailMixin, Page):
             self.table.set_rows(res or [])
 
     def install(self) -> None:
-        rows = self.table.targets()
+        self.install_rows(self.table.targets())
+
+    def install_rows(self, rows: list[dict]) -> None:
         if self.need_selection(rows):
             self.main.run_op(f"Installing {len(rows)} package(s)",
                              ["install", "standard", *self.names(rows)], True, self.main.refresh_all)
@@ -153,6 +231,11 @@ class InstalledPage(_DetailMixin, Page):
         self.table.toolbar.addWidget(self.explicit)
         self.table.add_button("Remove…", self.remove)
         self.table.add_button("Refresh", self.refresh)
+        self.table.add_context_action(lambda rows: f"Update {what(rows)} (partial upgrade)…",
+                                      lambda rows: update_packages(self, rows, "standard"),
+                                      has_update(self, "standard"))
+        self.table.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                      lambda rows: remove_packages(self, rows))
         self.table.current_changed.connect(self._show_details)
         QVBoxLayout(self).addWidget(self.table)
 
@@ -171,14 +254,7 @@ class InstalledPage(_DetailMixin, Page):
             self.table.set_rows(res or [])
 
     def remove(self) -> None:
-        rows = self.table.targets()
-        if not self.need_selection(rows):
-            return
-        opts = RemoveOptions(self.names(rows), self)
-        if opts.exec():
-            self.main.run_op(f"Removing {len(rows)} package(s)",
-                             ["remove", "standard", *self.names(rows), *opts.flags()], True,
-                             self.main.refresh_all)
+        remove_packages(self, self.table.targets())
 
 
 class RemoveOptions(QDialog):
@@ -268,34 +344,19 @@ class UpdatesPage(Page):
         self.flatt.current_changed.connect(lambda r: r and self.flatt.detail.setHtml(details_html(
             r.get("Name", ""), [("Id", r.get("Id")), ("Ref", r.get("FullRef")),
                                 ("Permissions", r.get("Permissions"))], r.get("Summary", ""))))
-        self.flatt.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.flatt.view.customContextMenuRequested.connect(
-            lambda pos: (m := self.flatpak_menu(pos)) and m.exec(self.flatt.view.viewport().mapToGlobal(pos)))
-
-    def flatpak_menu(self, pos) -> QMenu | None:
-        """Context menu for the Flatpak updates table at viewport position ``pos``."""
-        view = self.flatt.view
-        idx = view.indexAt(pos)
-        if not idx.isValid():
-            return None
-        if not view.selectionModel().isRowSelected(idx.row(), idx.parent()):
-            view.selectRow(idx.row())
-        view.selectionModel().setCurrentIndex(idx, QItemSelectionModel.SelectionFlag.NoUpdate)
-        rows = self.flatt.targets()
-        if not rows:
-            return None
-        menu = QMenu(view)
-        label = (f"Update {rows[0].get('Name') or rows[0].get('Id')}" if len(rows) == 1
-                 else f"Update {len(rows)} Flatpaks")
-        menu.addAction(label, lambda: self.update_flatpaks(rows))
-        return menu
-
-    def update_flatpaks(self, rows: list[dict]) -> None:
-        for r in rows:
-            target = r.get("Id") or r.get("Name")
-            if target:
-                self.main.run_op(f"Updating {r.get('Name') or target}", ["update", "flatpak", target],
-                                 True, self.refresh)
+        self.pending: dict[str, set] = {}
+        self.pkgs.add_context_action(lambda rows: f"Update {what(rows)} (partial upgrade)…",
+                                     lambda rows: update_packages(self, rows, "standard"))
+        self.pkgs.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                     lambda rows: remove_packages(self, rows))
+        self.aurt.add_context_action(lambda rows: f"Update {what(rows)}",
+                                     lambda rows: update_packages(self, rows, "aur"))
+        self.aurt.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                     lambda rows: remove_packages(self, rows, "aur"))
+        self.flatt.add_context_action(lambda rows: f"Update {what(rows, 'Flatpaks')}",
+                                      lambda rows: update_packages(self, rows, "flatpak"))
+        self.flatt.add_context_action(lambda rows: f"Remove {what(rows, 'Flatpaks')}…",
+                                      lambda rows: remove_flatpaks(self, rows))
 
     def refresh(self) -> None:
         self.main.busy("Checking for updates…")
@@ -312,6 +373,8 @@ class UpdatesPage(Page):
         self.pkgs.set_rows(p)
         self.aurt.set_rows(a)
         self.flatt.set_rows(f)
+        self.pending = {"standard": {r.get("Name") for r in p}, "aur": {r.get("Name") for r in a},
+                        "flatpak": {r.get("Id") for r in f}}
         self.tabs.setTabText(0, f"Repositories ({len(p)})")
         self.tabs.setTabText(1, f"AUR ({len(a)})")
         self.tabs.setTabText(2, f"Flatpak ({len(f)})")
@@ -387,6 +450,11 @@ class AurPage(Page):
         self.installed.add_button("Review PKGBUILD", lambda: self.preview(self.installed))
         self.installed.add_button("Remove…", self.remove)
         self.installed.add_button("Refresh", self.refresh)
+        self.installed.add_context_action(lambda rows: f"Update {what(rows)}",
+                                          lambda rows: update_packages(self, rows, "aur"),
+                                          has_update(self, "aur"))
+        self.installed.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                          lambda rows: remove_packages(self, rows, "aur"))
         self.installed.current_changed.connect(lambda r: r and self.installed.detail.setHtml(aur_details(r)))
         self.tabs.addTab(search, "Search")
         self.tabs.addTab(self.installed, "Installed")
@@ -454,14 +522,7 @@ class AurPage(Page):
                              ["install", "aur", *self.names(rows)], True, self.main.refresh_all)
 
     def remove(self) -> None:
-        rows = self.installed.targets()
-        if not self.need_selection(rows):
-            return
-        opts = RemoveOptions(self.names(rows), self, aur=True)
-        if opts.exec():
-            self.main.run_op(f"Removing {len(rows)} AUR package(s)",
-                             ["remove", "aur", *self.names(rows), *opts.flags()], True,
-                             self.main.refresh_all)
+        remove_packages(self, self.installed.targets(), "aur")
 
 
 # ------------------------------------------------------------------- Flatpak
@@ -485,6 +546,12 @@ class FlatpakPage(Page):
         self.installed.add_button("Remove", self.remove)
         self.installed.add_button("Update all", self.update_all)
         self.installed.add_button("Refresh", self.refresh)
+        self.installed.add_context_action(lambda rows: f"Update {what(rows, 'Flatpaks')}",
+                                          lambda rows: update_packages(self, rows, "flatpak"),
+                                          has_update(self, "flatpak"))
+        self.installed.add_context_action(
+            lambda rows: f"Remove {what(rows, 'Flatpaks')}…",
+            lambda rows: remove_flatpaks(self, rows, self.remove_config.isChecked()))
 
         search = QWidget()
         sl = QVBoxLayout(search)
@@ -553,15 +620,7 @@ class FlatpakPage(Page):
             self.main.run_op(f"Installing {r.get('name') or app_id}", args, False, self.refresh)
 
     def remove(self) -> None:
-        rows = self.installed.targets()
-        if not self.need_selection(rows):
-            return
-        for r in rows:
-            args = ["remove", "flatpak", r.get("Id", "")]
-            if self.remove_config.isChecked():
-                args.append("--remove-config")
-            args.append("--remove-unused")
-            self.main.run_op(f"Removing {r.get('Name') or r.get('Id')}", args, False, self.refresh)
+        remove_flatpaks(self, self.installed.targets(), self.remove_config.isChecked())
 
     def update_all(self) -> None:
         self.main.run_op("Updating Flatpaks", ["upgrade", "flatpak"], False, self.refresh)
@@ -585,6 +644,9 @@ class AppImagePage(Page):
         self.table.add_button("Check updates", self.check)
         self.table.add_button("Upgrade all", self.upgrade)
         self.table.add_button("Refresh", self.refresh)
+        self.table.add_context_action("Update all AppImages", lambda rows: self.upgrade(),
+                                      lambda rows: any(r.get("Name") in self.updates for r in rows))
+        self.table.add_context_action(lambda rows: f"Remove {what(rows, 'AppImages')}…", self.remove_rows)
         self.table.current_changed.connect(lambda r: r and self.table.detail.setHtml(details_html(
             r.get("DesktopName") or r.get("Name", ""), [
                 ("Version", r.get("Version")), ("Path", r.get("Path")),
@@ -612,7 +674,9 @@ class AppImagePage(Page):
             return
         self.updates = {u.get("Name"): u.get("Version", "") for u in res or []
                         if isinstance(u, dict) and u.get("IsUpdateAvailable")}
-        self.table.model.layoutChanged.emit()
+        m = self.table.model
+        if m.rowCount():  # refresh the Update column (layoutChanged alone crashes with a selection)
+            m.dataChanged.emit(m.index(0, 2), m.index(m.rowCount() - 1, 2))
         self.main.status(f"{len(self.updates)} AppImage update(s) available.")
 
     def install(self) -> None:
@@ -622,8 +686,15 @@ class AppImagePage(Page):
             self.main.run_op("Installing AppImage", ["install", "appimage", path], False, self.refresh)
 
     def remove(self) -> None:
-        for r in self.table.targets() or []:
-            self.main.run_op(f"Removing {r.get('Name')}", ["remove", "appimage", r.get("Name", "")],
+        self.remove_rows(self.table.targets())
+
+    def remove_rows(self, rows: list[dict]) -> None:
+        if not self.need_selection(rows):
+            return
+        if not confirm(self, "Remove AppImage", f"Remove {', '.join(what([r]) for r in rows)}?"):
+            return
+        for r in rows:
+            self.main.run_op(f"Removing {what([r])}", ["remove", "appimage", r.get("Name", "")],
                              False, self.refresh)
 
     def upgrade(self) -> None:

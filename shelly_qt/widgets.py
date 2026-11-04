@@ -4,10 +4,10 @@ from __future__ import annotations
 import html
 from typing import Any, Callable, Sequence
 
-from PySide6.QtCore import (QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt,
-                            Signal)
+from PySide6.QtCore import (QAbstractTableModel, QItemSelectionModel, QModelIndex,
+                            QSortFilterProxyModel, Qt, Signal)
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QPushButton, QSplitter, QTableView, QTextBrowser, QVBoxLayout,
+                               QMenu, QPushButton, QSplitter, QTableView, QTextBrowser, QVBoxLayout,
                                QWidget)
 
 Column = tuple[str, Callable[[dict], Any]]
@@ -136,6 +136,7 @@ class PackageTable(QWidget):
                  placeholder: str = "Filter…", parent=None) -> None:
         super().__init__(parent)
         self.model = RowModel(columns, checkable, self)
+        self._actions: list[tuple] = []
         self.proxy = FilterProxy(self)
         self.proxy.setSourceModel(self.model)
 
@@ -189,6 +190,41 @@ class PackageTable(QWidget):
         b.clicked.connect(slot)
         self.toolbar.addWidget(b)
         return b
+
+    def add_context_action(self, label: str | Callable[[list[dict]], str],
+                           slot: Callable[[list[dict]], None],
+                           when: Callable[[list[dict]], bool] | None = None) -> None:
+        """Add a right-click action. ``slot`` gets the right-clicked/selected rows."""
+        if not self._actions:
+            self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.view.customContextMenuRequested.connect(self._show_context_menu)
+        self._actions.append((label, slot, when))
+
+    def selected_rows(self) -> list[dict]:
+        idxs = sorted(self.view.selectionModel().selectedRows(), key=lambda i: i.row())
+        return [self.model.rows[self.proxy.mapToSource(i).row()] for i in idxs]
+
+    def context_menu(self, pos) -> QMenu | None:
+        """Build the right-click menu for viewport position ``pos`` (None over empty space)."""
+        idx = self.view.indexAt(pos)
+        if not idx.isValid() or not self._actions:
+            return None
+        sm = self.view.selectionModel()
+        if not sm.isRowSelected(idx.row(), idx.parent()):
+            self.view.selectRow(idx.row())
+        sm.setCurrentIndex(idx, QItemSelectionModel.SelectionFlag.NoUpdate)
+        rows = self.selected_rows()
+        menu = QMenu(self.view)
+        for label, slot, when in self._actions:
+            if when and not when(rows):
+                continue
+            menu.addAction(label(rows) if callable(label) else label, lambda s=slot, r=rows: s(r))
+        return menu if menu.actions() else None
+
+    def _show_context_menu(self, pos) -> None:
+        menu = self.context_menu(pos)
+        if menu:
+            menu.exec(self.view.viewport().mapToGlobal(pos))
 
     def set_rows(self, rows: list[dict]) -> None:
         self.model.set_rows(rows)

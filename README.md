@@ -11,12 +11,14 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 |---|---|---|
 | Browse | All repo packages, filter, details, install | `-Ssv`, `-Ssdi`, `install standard` |
 | Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs) | `-Ls`, `remove standard` |
-| Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all, right-click a Flatpak to update just it | `-P`, `sync --force`, `upgrade all`, `update flatpak <id>` |
+| Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
 | AUR | Search, PKGBUILD preview, build+install, installed list, remove | `search aur`, `list aur`, `install/remove aur` |
 | Flatpak | Installed apps, Flathub search, install (system/user), remove, update | `-Lf`, `search flatpak`, `install/remove flatpak` |
 | AppImage | List, check/upgrade, install from file, remove | `list appimage`, `list-updates appimage`, … |
 | Maintenance | Sync, remove orphans, clean cache, repair DB, fix permissions, install local package | `purify`, `utility` |
 | Settings | View/edit `config.json` keys | `config list`, `config set` |
+
+Right-click any list item for **Update** and **Remove**, wherever they apply: Update shows on the Updates tabs and on installed items with a pending update (`update standard|aur|flatpak <name>`; repo packages are a partial upgrade, which the CLI warns about), Remove on anything installed. The menu acts on the clicked row, or all selected rows.
 
 Privileged operations run through `pkexec`, as the GTK app does.
 

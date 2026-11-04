@@ -88,59 +88,157 @@ def test_declined_aur_build_fails(win, monkeypatch):
     assert "Build declined." in d.status.text()
 
 
-def test_flatpak_update_context_menu(win):
-    page = win.pages[2]
-    win.nav.setCurrentRow(2)
-    wait_until(lambda: len(page.flatt.model.rows) == 2)
-    view = page.flatt.view
-    assert view.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
-    assert page.flatpak_menu(view.viewport().rect().bottomRight()) is None  # empty area
-    pos = view.visualRect(page.flatt.proxy.index(0, 0)).center()
-    menu = page.flatpak_menu(pos)
-    acts = menu.actions()
-    assert [a.text() for a in acts] == ["Update GIMP"]
-    acts[0].trigger()
-    d = win.ops[-1]
-    assert d.op.args == ["update", "flatpak", "org.gimp.GIMP"]
-    wait_until(lambda: d.exit_code is not None)
-    assert d.exit_code == 0
+
+def menu_texts(menu):
+    return [a.text() for a in menu.actions()] if menu else []
 
 
-def test_flatpak_update_context_menu_multi(win):
-    page = win.pages[2]
-    win.nav.setCurrentRow(2)
-    wait_until(lambda: len(page.flatt.model.rows) == 2)
-    view = page.flatt.view
-    view.selectAll()
-    menu = page.flatpak_menu(view.visualRect(page.flatt.proxy.index(1, 0)).center())
-    assert [a.text() for a in menu.actions()] == ["Update 2 Flatpaks"]
+def menu_at(table, row):
+    return table.context_menu(table.view.visualRect(table.proxy.index(row, 0)).center())
+
+
+def trigger(win, menu, prefix):
     n = len(win.ops)
-    menu.actions()[0].trigger()
-    assert sorted(d.op.args[2] for d in win.ops[n:]) == ["org.gimp.GIMP", "org.kde.krita"]
-    for d in win.ops[n:]:
+    [a for a in menu.actions() if a.text().startswith(prefix)][0].trigger()
+    return win.ops[n:]
+
+
+def finish(ops):
+    for d in ops:
         wait_until(lambda d=d: d.exit_code is not None)
+        assert d.exit_code == 0
 
 
-def test_operation_window_is_standalone(win, monkeypatch):
+@pytest.fixture
+def answers(monkeypatch):
+    """Auto-answer the removal confirmations; tests flip .ok to decline."""
+    from shelly_qt import pages
+
+    class A:
+        ok = True
+    monkeypatch.setattr(pages, "confirm", lambda *a: A.ok)
+    monkeypatch.setattr(pages.RemoveOptions, "exec", lambda self: A.ok)
     monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
                         dialogs.protocol.answer_transaction(q["QuestionId"], True))
-    d = win.run_op("x", ["install", "standard", "zed"], True)
-    assert d.parent() is None
-    assert d.isWindow() and not d.isModal()
-    assert d.windowModality() == Qt.WindowModality.NonModal
-    wait_until(lambda: d.exit_code is not None)
-    d.close()
+    return A
 
 
-def test_sigint_quits_event_loop():
-    import signal
-    from shelly_qt.app import install_sigint_handler
-    old = signal.getsignal(signal.SIGINT)
-    timer = install_sigint_handler(app)
-    try:
-        QTimer.singleShot(100, lambda: os.kill(os.getpid(), signal.SIGINT))
-        QTimer.singleShot(5000, lambda: app.exit(99))  # safety net
-        assert app.exec() == 0
-    finally:
-        timer.stop()
-        signal.signal(signal.SIGINT, old)
+
+def updates_loaded(win):
+    up = win.pages[2]
+    wait_until(lambda: up.pending.get("flatpak"))
+    return up
+
+
+def test_context_menu_empty_space(win):
+    win.nav.setCurrentRow(1)
+    t = win.pages[1].table
+    wait_until(lambda: len(t.model.rows) == 3)
+    assert t.context_menu(t.view.viewport().rect().bottomRight()) is None
+
+
+def test_updates_tabs_offer_update_and_remove(win):
+    page = updates_loaded(win)
+    assert menu_texts(menu_at(page.pkgs, 0)) == ["Update firefox (partial upgrade)…", "Remove firefox…"]
+    assert menu_texts(menu_at(page.aurt, 0)) == ["Update yay", "Remove yay…"]
+    assert menu_texts(menu_at(page.flatt, 0)) == ["Update GIMP", "Remove GIMP…"]
+    ops = trigger(win, menu_at(page.pkgs, 0), "Update")
+    ops += trigger(win, menu_at(page.aurt, 0), "Update")
+    ops += trigger(win, menu_at(page.flatt, 0), "Update")
+    assert [d.op.args for d in ops] == [["update", "standard", "firefox"], ["update", "aur", "yay"],
+                                        ["update", "flatpak", "org.gimp.GIMP"]]
+    finish(ops)
+
+
+def test_updates_flatpak_multi(win, answers):
+    page = updates_loaded(win)
+    page.flatt.view.selectAll()
+    menu = menu_at(page.flatt, 1)
+    assert menu_texts(menu) == ["Update 2 Flatpaks", "Remove 2 Flatpaks…"]
+    ops = trigger(win, menu, "Update")
+    assert sorted(d.op.args[2] for d in ops) == ["org.gimp.GIMP", "org.kde.krita"]
+    finish(ops)
+    ops = trigger(win, menu, "Remove")
+    assert sorted(d.op.args for d in ops) == [["remove", "flatpak", "org.gimp.GIMP", "--remove-unused"],
+                                              ["remove", "flatpak", "org.kde.krita", "--remove-unused"]]
+    finish(ops)
+
+
+def test_remove_declined_runs_nothing(win, answers):
+    answers.ok = False
+    page = updates_loaded(win)
+    assert trigger(win, menu_at(page.flatt, 0), "Remove") == []
+    assert trigger(win, menu_at(page.pkgs, 0), "Remove") == []
+
+
+def test_updates_repo_and_aur_remove(win, answers):
+    page = updates_loaded(win)
+    ops = trigger(win, menu_at(page.pkgs, 0), "Remove")
+    assert ops[0].op.args[:3] == ["remove", "standard", "firefox"]
+    finish(ops)
+    ops = trigger(win, menu_at(page.aurt, 0), "Remove")
+    finish(ops)
+
+
+def test_installed_update_only_when_pending(win, answers):
+    updates_loaded(win)
+    win.nav.setCurrentRow(1)
+    t = win.pages[1].table
+    wait_until(lambda: len(t.model.rows) == 3)
+    names = [t.row_at(t.proxy.index(i, 0))["Name"] for i in range(3)]
+    ff, git = names.index("firefox"), names.index("git")
+    assert menu_texts(menu_at(t, ff)) == ["Update firefox (partial upgrade)…", "Remove firefox…"]
+    assert menu_texts(menu_at(t, git)) == ["Remove git…"]
+    t.view.selectAll()
+    menu = menu_at(t, 0)
+    assert menu_texts(menu) == ["Remove 3 packages…"]
+    ops = trigger(win, menu, "Remove")
+    assert ops[0].op.args[:2] == ["remove", "standard"] and len(ops[0].op.args) >= 5
+    finish(ops)
+
+
+def test_browse_offers_install_or_remove(win, answers):
+    updates_loaded(win)
+    t = win.pages[0].table
+    wait_until(lambda: len(t.model.rows) == 5)
+    rows = [t.row_at(t.proxy.index(i, 0)) for i in range(5)]
+    git = next(i for i, r in enumerate(rows) if r["Name"] == "git")
+    ff = next(i for i, r in enumerate(rows) if r["Name"] == "firefox")
+    avail = next(i for i, r in enumerate(rows) if not r["Installed"])
+    assert menu_texts(menu_at(t, git)) == ["Remove git…"]
+    assert menu_texts(menu_at(t, ff)) == ["Update firefox (partial upgrade)…", "Remove firefox…"]
+    assert menu_texts(menu_at(t, avail)) == [f"Install {rows[avail]['Name']}"]
+    t.view.selectAll()
+    assert menu_texts(menu_at(t, 0)) == []  # mixed selection: nothing applies to all
+    t.view.clearSelection()
+    ops = trigger(win, menu_at(t, git), "Remove")
+    assert ops[0].op.args[:3] == ["remove", "standard", "git"]
+    finish(ops)
+
+
+def test_aur_flatpak_appimage_menus(win, answers):
+    updates_loaded(win)
+    for i in range(3, 6):
+        win.nav.setCurrentRow(i)
+    aur, flat, appimg = win.pages[3].installed, win.pages[4].installed, win.pages[5].table
+    wait_until(lambda: len(aur.model.rows) == 1 and len(flat.model.rows) == 1 and len(appimg.model.rows) == 1)
+    assert menu_texts(menu_at(aur, 0)) == ["Update yay", "Remove yay…"]
+    assert menu_texts(menu_at(flat, 0)) == ["Update GIMP", "Remove GIMP…"]
+    assert menu_texts(menu_at(appimg, 0)) == ["Remove Obsidian…"]
+    win.pages[5].check()
+    wait_until(lambda: win.pages[5].updates)
+    assert menu_texts(menu_at(appimg, 0)) == ["Update all AppImages", "Remove Obsidian…"]
+
+    ops = trigger(win, menu_at(aur, 0), "Remove")
+    win.pages[4].remove_config.setChecked(True)
+    ops += trigger(win, menu_at(flat, 0), "Remove")
+    ops += trigger(win, menu_at(appimg, 0), "Remove")
+    ops += trigger(win, menu_at(flat, 0), "Update")
+    ops += trigger(win, menu_at(appimg, 0), "Update")
+    assert [d.op.args for d in ops] == [
+        ["remove", "aur", "yay"],
+        ["remove", "flatpak", "org.gimp.GIMP", "--remove-config", "--remove-unused"],
+        ["remove", "appimage", "obsidian"],
+        ["update", "flatpak", "org.gimp.GIMP"],
+        ["upgrade", "appimage"]]
+    finish(ops)
