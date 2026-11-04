@@ -182,9 +182,58 @@ class FlatpakSource(CliSource):
         ], row.get("description") or row.get("Description") or "")
 
 
+class PrefixSource(Source):
+    """conda-forge on prefix.dev, installed through a prefix-alpm server ([prefix] repo).
+
+    Only offered while the server answers: without it nothing can be installed, so the
+    combined search stays quiet instead of listing rows it can't act on (the prefix.dev
+    page still searches prefix.dev directly in that case).
+    """
+
+    key, label, privileged, min_query = "prefix", "prefix.dev", True, 2
+
+    def __init__(self) -> None:
+        self._client = None
+
+    def search(self, query: str, done: Done) -> None:
+        from .prefixdev import Client
+
+        if self._client is None:
+            self._client = Client()
+
+        def got(res, err):
+            rows = [r for r in (res or []) if isinstance(r, dict) and not r.get("offline")]
+            done([self._row(r) for r in rows], None)  # offline/unreachable: no rows, no error
+
+        self._client.search(query, got, limit=30, fallback=False)
+
+    def _row(self, r: dict) -> dict:
+        row = dict(r)
+        row.update(Name=r.get("name", ""), Version=r.get("available") or r.get("latest") or "",
+                   Description=r.get("summary") or "", _source=self.key, Installed=False)
+        return row
+
+    def mark_installed(self, rows, main) -> None:
+        page = _page(main, "PrefixDevPage")
+        have = set(getattr(page, "installed", {}) or {})
+        have |= _installed_names(main, "InstalledPage", "table", "Name")
+        for r in rows:
+            r["Installed"] = r["Installed"] or r.get("Name") in have
+            r["installed"] = "yes" if r["Installed"] else ""
+
+    def install(self, main, rows, options) -> None:
+        page = _page(main, "PrefixDevPage")
+        if page is not None:
+            page.install_rows(rows)
+
+    def details(self, row: dict) -> str:
+        from .pages import prefix_details
+        return prefix_details(row)
+
+
 # Shelly has no AppImage catalogue search (only list/install from a file or URL),
 # so AppImages are not a search source.
-SOURCES: list[Source] = [RepoSource(), AurSource(), FlatpakSource()]
+SOURCES: list[Source] = [RepoSource(), AurSource(), FlatpakSource(), PrefixSource()]
 
 
 def source(key: str) -> Source | None:

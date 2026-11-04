@@ -544,6 +544,162 @@ class AurPage(Page):
         remove_packages(self, self.installed.targets(), "aur")
 
 
+# ----------------------------------------------------------------- prefix.dev
+
+def prefix_details(r: dict) -> str:
+    conda = r.get("conda_name") or r.get("name", "")
+    url = f"https://prefix.dev/channels/conda-forge/packages/{conda}"
+    if r.get("installed"):
+        state = f"installed ({r['installed']})"
+    elif r.get("available"):
+        state = f"in the [prefix] repo ({r['available']})"
+    elif r.get("offline"):
+        state = "prefix-alpm server not running: search only"
+    else:
+        state = "not added yet; Install adds it and its dependencies"
+    return details_html(r.get("name", ""), [
+        ("conda-forge name", conda),
+        ("Latest on prefix.dev", r.get("latest")),
+        ("Status", state),
+        ("Installs to", "/opt/prefix (bin/ is appended to PATH)"),
+        ("Page", url),
+    ], r.get("summary") or "")
+
+
+class PrefixDevPage(Page):
+    """Live search of conda-forge on prefix.dev, installed through a prefix-alpm server."""
+
+    title = "prefix.dev"
+
+    def __init__(self, main) -> None:
+        super().__init__(main)
+        from PySide6.QtCore import QTimer
+
+        from .prefixdev import Client, server_url
+
+        self.client = Client(self)
+        self.installed: dict[str, str] = {}
+        lay = QVBoxLayout(self)
+        row = QHBoxLayout()
+        self.query = QLineEdit()
+        self.query.setPlaceholderText("Search conda-forge on prefix.dev…")
+        self.query.setClearButtonEnabled(True)
+        row.addWidget(self.query, 1)
+        lay.addLayout(row)
+        self.banner = QLabel()
+        self.banner.setWordWrap(True)
+        self.banner.setTextFormat(Qt.TextFormat.RichText)
+        self.banner.hide()
+        lay.addWidget(self.banner)
+        self.results = PackageTable([
+            ("Name", key("name")), ("Latest", key("latest")),
+            ("In repo", lambda r: r.get("available") or ""),
+            ("Installed", lambda r: r.get("installed") or ""),
+            ("Summary", key("summary")),
+        ], placeholder="Filter results…")
+        self.results.add_button("Install", self.install, "Add to the [prefix] repo and install")
+        self.results.add_context_action(lambda rows: f"Install {what(rows)}", self.install_rows,
+                                        lambda rows: not any(r.get("installed") for r in rows))
+        self.results.add_context_action(lambda rows: f"Remove {what(rows)}…",
+                                        lambda rows: remove_packages(self, [{"Name": r["name"]} for r in rows]),
+                                        lambda rows: all(r.get("installed") for r in rows))
+        self.results.current_changed.connect(lambda r: r and self.results.detail.setHtml(prefix_details(r)))
+        lay.addWidget(self.results, 1)
+        self.hint = QLabel(f"Packages come from conda-forge via the prefix-alpm server at "
+                           f"<code>{server_url()}</code> and install under <code>/opt/prefix</code>.")
+        self.hint.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(self.hint)
+        # search as you type, debounced
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(300)
+        self.timer.timeout.connect(self.search)
+        self.query.textChanged.connect(lambda *_: self.timer.start())
+        self.query.returnPressed.connect(self.search)
+
+    def refresh(self) -> None:
+        cli.query(["-Ls"], self._installed_loaded, parse=lambda t: protocol.last_data(t, []))
+        self.client.status(self._status)
+
+    def _status(self, res, err) -> None:
+        from .prefixdev import server_url
+
+        if err:
+            self.banner.setText(
+                f"<b>prefix-alpm isn't running</b> at <code>{server_url()}</code>, so you can search "
+                "but not install. Start it with <code>just serve</code> in the prefix-alpm checkout and "
+                "add <code>[prefix]</code> to pacman.conf (<code>just enable</code>).")
+            self.banner.setStyleSheet("QLabel{background:palette(alternate-base);padding:8px;border-radius:6px}")
+            self.banner.show()
+        else:
+            self.banner.hide()
+
+    def _installed_loaded(self, res, err) -> None:
+        if err or not isinstance(res, list):
+            return
+        self.installed = {str(p.get("Name")): str(p.get("Version", "")) for p in res if p.get("Name")}
+        self._annotate(self.results.model.rows)
+
+    def _annotate(self, rows: list[dict]) -> None:
+        for r in rows:
+            r["installed"] = self.installed.get(r.get("name", ""), "")
+        self.results.set_rows(list(rows))
+
+    def search(self) -> None:
+        self.timer.stop()
+        q = self.query.text().strip()
+        if len(q) < 2:
+            return
+        self.main.busy(f"Searching prefix.dev for “{q}”…")
+        self.client.search(q, lambda res, err, q=q: self._searched(q, res, err))
+
+    def _searched(self, q: str, res, err) -> None:
+        self.main.idle()
+        if q != self.query.text().strip():
+            return  # a newer search is on its way
+        if err:
+            self.main.status("prefix.dev search failed: " + err)
+            return
+        rows = res or []
+        offline = any(r.get("offline") for r in rows)
+        self._status(None, "offline" if offline else None)
+        self._annotate(rows)
+
+    def install(self) -> None:
+        self.install_rows(self.results.targets())
+
+    def install_rows(self, rows: list[dict]) -> None:
+        if not self.need_selection(rows):
+            return
+        if any(r.get("offline") for r in rows):
+            QMessageBox.information(self, "Shelly", "Installing from prefix.dev needs the prefix-alpm "
+                                    "server; start it with <code>just serve</code>.")
+            return
+        names = [r["name"] for r in rows]
+        self.main.busy(f"Adding {what(rows)} to the [prefix] repo…")
+        self.client.add(names, lambda res, err: self._added(names, res, err))
+
+    def _added(self, names: list[str], res, err) -> None:
+        self.main.idle(err)
+        if err:
+            return
+        failed = (res or {}).get("failed") or []
+        if failed:
+            QMessageBox.warning(self, "Shelly", "Couldn't resolve on conda-forge: " + ", ".join(failed)
+                                + "\n" + "\n".join((res or {}).get("conflicts") or []))
+            return
+        added = (res or {}).get("added") or []
+        self.main.status(f"[prefix] repo now offers {len(added)} new package(s)")
+
+        def install() -> None:
+            self.main.run_op(f"Installing {len(names)} prefix.dev package(s)",
+                             ["install", "standard", *names], True,
+                             lambda: (self.main.refresh_all(), self.refresh()))
+
+        # the db changed on the server, so sync it before installing
+        self.main.run_op("Synchronizing package databases", ["sync", "--force"], True, install)
+
+
 # ------------------------------------------------------------------- Flatpak
 
 class FlatpakPage(Page):

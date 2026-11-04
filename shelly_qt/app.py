@@ -16,14 +16,15 @@ from . import __version__, cli
 from .dialogs import OperationDialog
 from .links import install_url_handler
 from .openfile import Target, targets_from_argv
-from .pages import (AppImagePage, AurPage, BrowsePage, FlatpakPage, InstalledPage, SettingsPage,
-                    UpdatesPage, UtilitiesPage)
+from .pages import (AppImagePage, AurPage, BrowsePage, FlatpakPage, InstalledPage, PrefixDevPage,
+                    SettingsPage, UpdatesPage, UtilitiesPage)
 from .search_page import SearchPage
 from .search_sources import SOURCES
 
 ICONS = {
     "Browse": "system-search", "Installed": "drive-harddisk", "Updates": "system-software-update",
-    "AUR": "applications-development", "Flatpak": "package-x-generic", "AppImage": "application-x-executable",
+    "AUR": "applications-development", "prefix.dev": "applications-science",
+    "Flatpak": "package-x-generic", "AppImage": "application-x-executable",
     "Maintenance": "preferences-system", "Settings": "preferences-other",
 }
 
@@ -57,7 +58,8 @@ class MainWindow(QMainWindow):
         self.nav.setStyleSheet("QListWidget{border:none;font-size:14px} QListWidget::item{padding:8px}")
         self.stack = QStackedWidget()
         self.pages = [BrowsePage(self), InstalledPage(self), UpdatesPage(self), AurPage(self),
-                      FlatpakPage(self), AppImagePage(self), UtilitiesPage(self), SettingsPage(self)]
+                      PrefixDevPage(self), FlatpakPage(self), AppImagePage(self), UtilitiesPage(self),
+                      SettingsPage(self)]
         for p in self.pages:
             item = QListWidgetItem(QIcon.fromTheme(ICONS.get(p.title, "")), p.title)
             self.nav.addItem(item)

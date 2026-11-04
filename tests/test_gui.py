@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 FAKE = Path(__file__).with_name("fake_shelly.py")
 os.environ["SHELLY_BIN"] = f"{sys.executable} {FAKE}"
 os.environ["SHELLY_ELEVATE"] = ""
+os.environ["PREFIX_ALPM_URL"] = "http://127.0.0.1:9"  # no prefix-alpm server unless a test starts one
 
 from PySide6.QtCore import QEventLoop, QTimer, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -44,12 +45,12 @@ def test_pages_load(win):
     win.nav.setCurrentRow(1)
     wait_until(lambda: len(win.pages[1].table.model.rows) == 3)
     wait_until(lambda: win.nav.item(2).text() == "Updates (4)")
-    for i in range(3, 8):
+    for i in range(3, 9):
         win.nav.setCurrentRow(i)
     wait_until(lambda: len(win.pages[3].installed.model.rows) == 1)
-    wait_until(lambda: len(win.pages[4].installed.model.rows) == 1)
-    wait_until(lambda: len(win.pages[5].table.model.rows) == 1)
-    wait_until(lambda: win.pages[7].table.rowCount() == 5)
+    wait_until(lambda: len(win.pages[5].installed.model.rows) == 1)
+    wait_until(lambda: len(win.pages[6].table.model.rows) == 1)
+    wait_until(lambda: win.pages[8].table.rowCount() == 5)
 
 
 def test_filter(win):
@@ -221,19 +222,19 @@ def test_browse_offers_install_or_remove(win, answers):
 
 def test_aur_flatpak_appimage_menus(win, answers):
     updates_loaded(win)
-    for i in range(3, 6):
+    for i in range(3, 7):
         win.nav.setCurrentRow(i)
-    aur, flat, appimg = win.pages[3].installed, win.pages[4].installed, win.pages[5].table
+    aur, flat, appimg = win.pages[3].installed, win.pages[5].installed, win.pages[6].table
     wait_until(lambda: len(aur.model.rows) == 1 and len(flat.model.rows) == 1 and len(appimg.model.rows) == 1)
     assert menu_texts(menu_at(aur, 0)) == ["Review PKGBUILD", "Update yay", "Remove yay…"]
     assert menu_texts(menu_at(flat, 0)) == ["Update GIMP", "Remove GIMP…"]
     assert menu_texts(menu_at(appimg, 0)) == ["Remove Obsidian…"]
-    win.pages[5].check()
-    wait_until(lambda: win.pages[5].updates)
+    win.pages[6].check()
+    wait_until(lambda: win.pages[6].updates)
     assert menu_texts(menu_at(appimg, 0)) == ["Update all AppImages", "Remove Obsidian…"]
 
     ops = trigger(win, menu_at(aur, 0), "Remove")
-    win.pages[4].remove_config.setChecked(True)
+    win.pages[5].remove_config.setChecked(True)
     ops += trigger(win, menu_at(flat, 0), "Remove")
     ops += trigger(win, menu_at(appimg, 0), "Remove")
     ops += trigger(win, menu_at(flat, 0), "Update")
@@ -312,8 +313,8 @@ def test_every_package_list_has_a_context_menu(win):
 
 def test_flathub_search_menu(win, answers):
     updates_loaded(win)
-    page = win.pages[4]
-    win.nav.setCurrentRow(4)
+    page = win.pages[5]
+    win.nav.setCurrentRow(5)
     wait_until(lambda: len(page.installed.model.rows) == 1)
     page.query.setText("x")
     page.search()
@@ -412,3 +413,76 @@ def test_combined_search_marks_installed(win):
     assert win.nav.currentRow() == -1
     win.nav.setCurrentRow(0)
     assert win.stack.currentWidget() is win.pages[0]
+
+@pytest.fixture
+def prefix_server(monkeypatch):
+    sys.path.insert(0, str(Path(__file__).parent))
+    import fake_prefix_alpm
+
+    srv, url = fake_prefix_alpm.start()
+    monkeypatch.setenv("PREFIX_ALPM_URL", url)
+    fake_prefix_alpm.State.calls.clear()
+    yield fake_prefix_alpm.State
+    srv.shutdown()
+
+
+def test_prefixdev_search_and_install(prefix_server, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", lambda q, parent=None:
+                        dialogs.protocol.answer_transaction(q["QuestionId"], True))
+    w = MainWindow()
+    w.show()
+    try:
+        w.nav.setCurrentRow(4)
+        page = w.pages[4]
+        assert page.title == "prefix.dev"
+        page.query.setText("http")  # search as you type (debounced)
+        wait_until(lambda: len(page.results.model.rows) == 2)
+        rows = {r["name"]: r for r in page.results.model.rows}
+        assert rows["conda-httpie"]["available"] is None
+        assert not page.banner.isVisible()
+        page.install_rows([rows["conda-httpie"]])
+        wait_until(lambda: len(w.ops) >= 1)
+        assert ("/add", {"name": ["conda-httpie"]}) in prefix_server.calls
+        assert w.ops[0].op.args == ["sync", "--force"]
+        wait_until(lambda: len(w.ops) >= 2 or w.ops[0].exit_code not in (None, 0))
+        assert w.ops[-1].op.args == ["install", "standard", "conda-httpie"]
+        wait_until(lambda: w.ops[-1].exit_code is not None)
+        assert w.ops[-1].exit_code == 0
+    finally:
+        w.close()
+
+
+def test_prefixdev_without_server_falls_back(monkeypatch):
+    monkeypatch.setenv("PREFIX_ALPM_URL", "http://127.0.0.1:9")  # nothing listens here
+    from shelly_qt import prefixdev
+
+    def fake_graphql(self, text, limit, done):
+        done([{"name": "conda-jq", "conda_name": "jq", "summary": "JSON processor", "latest": "1.8.2",
+               "available": None, "offline": True}], None)
+
+    monkeypatch.setattr(prefixdev.Client, "_graphql_search", fake_graphql)
+    w = MainWindow()
+    w.show()
+    try:
+        w.nav.setCurrentRow(4)
+        page = w.pages[4]
+        wait_until(lambda: page.banner.isVisible())
+        page.query.setText("jq")
+        page.search()
+        wait_until(lambda: len(page.results.model.rows) == 1)
+        assert "isn't running" in page.banner.text()
+    finally:
+        w.close()
+
+
+def test_combined_search_includes_prefix_dev(prefix_server):
+    w = MainWindow()
+    w.show()
+    try:
+        w.search_all("httpie")
+        page = search_done(w)
+        rows = [r for r in page.table.model.rows if r["_source"] == "prefix"]
+        assert [r["Name"] for r in rows] == ["conda-httpie"]
+        assert "prefix" in page.toggles
+    finally:
+        w.close()
