@@ -165,8 +165,7 @@ class MainWindow(QMainWindow):
         for p in self.pages:
             if p.loaded:
                 p.refresh()
-        if self.search_page.query:
-            self.search_page.refresh()
+        self.search_page.refresh()
 
     def run_op(self, title: str, args: list[str], privileged: bool, on_success=None) -> OperationDialog:
         d = OperationDialog(title, args, privileged)

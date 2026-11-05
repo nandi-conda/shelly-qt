@@ -18,6 +18,31 @@ def source_label(row: dict) -> str:
     return s.label if s else row.get("_source", "")
 
 
+def installed_text(row: dict) -> str:
+    """What the Installed column shows: the installed version, "yes", or what provides it."""
+    if row.get("Installed"):
+        return row.get("InstalledVersion") or "yes"
+    if row.get("ProvidedBy"):
+        return f"via {row['ProvidedBy']}"
+    return ""
+
+
+def local_db(packages) -> tuple[dict[str, str], dict[str, str]]:
+    """``shelly -Ls`` rows -> ({name: version}, {provided name: providing package})."""
+    versions: dict[str, str] = {}
+    provided: dict[str, str] = {}
+    for p in packages if isinstance(packages, list) else []:
+        if not isinstance(p, dict) or not p.get("Name"):
+            continue
+        name = str(p["Name"])
+        versions[name] = str(p.get("Version") or "")
+        for prov in p.get("Provides") or []:
+            prov = str(prov).split("=", 1)[0].split(">", 1)[0].split("<", 1)[0].strip()
+            if prov and prov != name:
+                provided.setdefault(prov, name)
+    return versions, provided
+
+
 class SearchPage(Page):
     title = "Search"
 
@@ -29,10 +54,13 @@ class SearchPage(Page):
         self.errors: dict[str, str] = {}
         self.pending: set[str] = set()
         self.searched: set[str] = set()
+        # the local package database, loaded with ``shelly -Ls`` (None until then / when stale)
+        self.local: tuple[dict[str, str], dict[str, str]] | None = None
+        self._local_gen = 0
 
         self.table = PackageTable([
             ("Name", key("Name")), ("Version", key("Version")), ("Source", source_label),
-            ("Installed", key("Installed", False)), match_column(), ("Description", key("Description")),
+            ("Installed", installed_text), match_column(), ("Description", key("Description")),
         ], placeholder="Filter results…")
         self.match_col = 4
         self.toggles: dict[str, QCheckBox] = {}
@@ -84,9 +112,33 @@ class SearchPage(Page):
         self.pending = set()
         self.table.set_rows([])
         self.sort_by_relevance()
+        if self.local is None:
+            self.load_local()
         for s in self.enabled():
             self._run(s)
         self._update_summary()
+
+    def load_local(self) -> None:
+        """(Re)load installed packages, then re-mark the rows already shown."""
+        self._local_gen += 1
+        gen = self._local_gen
+
+        def done(res, err):
+            if gen != self._local_gen or err or not isinstance(res, list):
+                return
+            self.local = local_db(res)
+            self.remark()
+
+        cli.query(["-Ls"], done, parse=lambda t: protocol.last_data(t, []))
+
+    def remark(self) -> None:
+        """Run every source's installed check again on the current results."""
+        for k, rows in self.results.items():
+            s = source(k)
+            if s:
+                s.mark_installed(rows, self.main)
+        if self.results:
+            self._rebuild()
 
     def sort_by_relevance(self) -> None:
         """Most relevant first; clicking the Match header does the same."""
@@ -125,8 +177,11 @@ class SearchPage(Page):
         self._update_summary()
 
     def refresh(self) -> None:
-        if self.query:
-            self.search(self.query)
+        """After a transaction: installed state changed, the search results did not."""
+        if not self.query:
+            self.local = None  # reload on the next search
+            return
+        self.load_local()
 
     def _toggled(self, key_: str, on: bool) -> None:
         if on and self.query and key_ not in self.searched:

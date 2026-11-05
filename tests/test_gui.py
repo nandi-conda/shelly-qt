@@ -43,7 +43,7 @@ def test_pages_load(win):
     browse = win.pages[0]
     wait_until(lambda: len(browse.table.model.rows) == 5)
     win.nav.setCurrentRow(1)
-    wait_until(lambda: len(win.pages[1].table.model.rows) == 3)
+    wait_until(lambda: len(win.pages[1].table.model.rows) == 5)
     wait_until(lambda: win.nav.item(2).text() == "Updates (4)")
     for i in range(3, 9):
         win.nav.setCurrentRow(i)
@@ -137,7 +137,7 @@ def updates_loaded(win):
 def test_context_menu_empty_space(win):
     win.nav.setCurrentRow(1)
     t = win.pages[1].table
-    wait_until(lambda: len(t.model.rows) == 3)
+    wait_until(lambda: len(t.model.rows) == 5)
     assert t.context_menu(t.view.viewport().rect().bottomRight()) is None
 
 
@@ -188,14 +188,14 @@ def test_installed_update_only_when_pending(win, answers):
     updates_loaded(win)
     win.nav.setCurrentRow(1)
     t = win.pages[1].table
-    wait_until(lambda: len(t.model.rows) == 3)
-    names = [t.row_at(t.proxy.index(i, 0))["Name"] for i in range(3)]
+    wait_until(lambda: len(t.model.rows) == 5)
+    names = [t.row_at(t.proxy.index(i, 0))["Name"] for i in range(5)]
     ff, git = names.index("firefox"), names.index("git")
     assert menu_texts(menu_at(t, ff)) == ["Update firefox (partial upgrade)…", "Remove firefox…"]
     assert menu_texts(menu_at(t, git)) == ["Remove git…"]
     t.view.selectAll()
     menu = menu_at(t, 0)
-    assert menu_texts(menu) == ["Remove 3 packages…"]
+    assert menu_texts(menu) == ["Remove 5 packages…"]
     ops = trigger(win, menu, "Remove")
     assert ops[0].op.args[:2] == ["remove", "standard"] and len(ops[0].op.args) >= 5
     finish(ops)
@@ -404,12 +404,14 @@ def test_combined_search_reports_source_errors(win):
 
 
 def test_combined_search_marks_installed(win):
-    win.nav.setCurrentRow(3)  # load installed AUR packages
-    wait_until(lambda: len(win.pages[3].installed.model.rows) == 1)
+    # no page visited first: the search page reads the local package database itself
     win.search_all("yay")
     page = search_done(win)
+    wait_until(lambda: page.local is not None)
     yay = next(r for r in page.table.model.rows if r["Name"] == "yay")
     assert yay["Installed"] and yay["_source"] == "aur"
+    from shelly_qt.search_page import installed_text
+    assert installed_text(yay) == "12.4.1-1"
     assert win.nav.currentRow() == -1
     win.nav.setCurrentRow(0)
     assert win.stack.currentWidget() is win.pages[0]
@@ -425,6 +427,35 @@ def prefix_server(monkeypatch):
     fake_prefix_alpm.State.added = {"ripgrep": "conda-forge"}
     yield fake_prefix_alpm.State
     srv.shutdown()
+
+
+def test_combined_search_marks_repo_and_provided(win):
+    win.search_all("shelly")
+    page = search_done(win)
+    wait_until(lambda: page.local is not None)
+    rows = {r["Name"]: r for r in page.table.model.rows}
+    assert rows["shelly-bin"]["Installed"] and rows["shelly-bin"]["InstalledVersion"] == "3.2.0-1"
+    assert not rows["shelly-flatpak-backend-bin"]["Installed"]
+    win.search_all("firefox")
+    page = search_done(win)
+    wait_until(lambda: any(r.get("Installed") for r in page.table.model.rows))
+    ff = next(r for r in page.table.model.rows if r["Name"] == "firefox")
+    assert ff["_source"] == "repo" and ff["InstalledVersion"] == "133.0-1"
+
+
+def test_combined_search_remarks_after_transaction(win):
+    win.search_all("zed")
+    page = search_done(win)
+    wait_until(lambda: page.local is not None)
+    zed = next(r for r in page.table.model.rows if r["_source"] == "repo")
+    assert not zed["Installed"]
+    page.local = ({**page.local[0]}, page.local[1])
+    page.local[0]["zed"] = "0.165.4-1"  # as if just installed; refresh reloads the real db
+    page.remark()
+    assert next(r for r in page.table.model.rows if r["_source"] == "repo")["Installed"]
+    win.refresh_all()
+    wait_until(lambda: not next(r for r in page.table.model.rows if r["_source"] == "repo")["Installed"])
+    assert len(page.table.model.rows) == 3  # results kept, not searched again
 
 
 def test_prefixdev_search_and_install(prefix_server, monkeypatch):
@@ -564,3 +595,12 @@ def test_blocked_install_remove_then_retry(win, monkeypatch):
     assert rm.exit_code == 0
     wait_until(lambda: win.ops[-1] is not rm)
     assert win.ops[-1].args == ["install", "aur", "shelly-bin"]
+
+
+def test_installed_column_shows_provider():
+    from shelly_qt.search_page import installed_text, local_db
+    versions, provided = local_db([{"Name": "shelly-bin", "Version": "3.2.0-1", "Provides": ["shelly=3.2.0"]}])
+    assert versions == {"shelly-bin": "3.2.0-1"} and provided == {"shelly": "shelly-bin"}
+    assert installed_text({"Installed": True, "InstalledVersion": "3.2.0-1"}) == "3.2.0-1"
+    assert installed_text({"Installed": False, "ProvidedBy": "shelly-bin"}) == "via shelly-bin"
+    assert installed_text({"Installed": False}) == ""

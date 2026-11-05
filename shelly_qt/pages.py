@@ -651,6 +651,7 @@ class PrefixDevPage(Page):
             return
         self.installed = {str(p.get("Name")): str(p.get("Version", "")) for p in res if p.get("Name")}
         self._annotate(self.results.model.rows)
+        getattr(self.main, "search_page", None) and self.main.search_page.remark()
 
     def _annotate(self, rows: list[dict]) -> None:
         for r in rows:
@@ -800,6 +801,7 @@ class FlatpakPage(Page):
         self.main.idle(err)
         if not err:
             self.installed.set_rows(res or [])
+            getattr(self.main, "search_page", None) and self.main.search_page.remark()  # Flatpak rows there are marked from this list
 
     def search(self) -> None:
         q = self.query.text().strip()

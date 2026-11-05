@@ -40,6 +40,26 @@ class Source:
     def mark_installed(self, rows: list[dict], main: "MainWindow") -> None:
         """Set ``Installed`` on rows using what the app already knows."""
 
+
+def mark_from_local(rows: list[dict], main: "MainWindow") -> None:
+    """Mark pacman-managed rows (repo and AUR) from the local package database.
+
+    Shelly's search results carry no installed flag, so the Search page loads
+    ``shelly -Ls`` (every installed package, AUR/foreign ones included) and this
+    looks each row's name up in it. A row whose name another installed package
+    provides (``shelly`` while ``shelly-bin`` is installed) gets ``ProvidedBy``.
+    """
+    page = getattr(main, "search_page", None)
+    local = getattr(page, "local", None)
+    if local is None:
+        return  # not loaded yet: keep what the rows say; the page re-marks when it arrives
+    versions, provided = local
+    for r in rows:
+        name = r.get("Name") or ""
+        r["InstalledVersion"] = versions.get(name, "")
+        r["Installed"] = name in versions
+        r["ProvidedBy"] = "" if r["Installed"] else provided.get(name, "")
+
     def install(self, main: "MainWindow", rows: list[dict], options: dict) -> None:
         raise NotImplementedError
 
@@ -69,7 +89,8 @@ class CliSource(Source):
 
     def _tag(self, row: dict) -> dict:
         row["_source"] = self.key
-        row["Installed"] = bool(row.get("Installed"))
+        row["_reported_installed"] = bool(row.get("Installed"))  # kept so a re-mark can clear Installed
+        row["Installed"] = row["_reported_installed"]
         return row
 
 
@@ -96,6 +117,9 @@ class RepoSource(CliSource):
     def parse(self, text: str) -> list[dict]:
         return cli.merged_data(text)  # standard search may stream several pages
 
+    def mark_installed(self, rows, main) -> None:
+        mark_from_local(rows, main)
+
     def install(self, main, rows, options) -> None:
         names = [r["Name"] for r in rows if r.get("Name")]
         main.run_op(f"Installing {len(names)} package(s)", ["install", "standard", *names], True,
@@ -113,9 +137,12 @@ class AurSource(CliSource):
         return ["search", "aur", *query.split()]
 
     def mark_installed(self, rows, main) -> None:
+        if getattr(getattr(main, "search_page", None), "local", None) is not None:
+            mark_from_local(rows, main)
+            return
         have = _installed_names(main, "AurPage", "installed", "Name")
         for r in rows:
-            r["Installed"] = r["Installed"] or r.get("Name") in have
+            r["Installed"] = r.get("_reported_installed", False) or r.get("Name") in have
 
     def install(self, main, rows, options) -> None:
         names = [r["Name"] for r in rows if r.get("Name")]
@@ -152,7 +179,7 @@ class FlatpakSource(CliSource):
     def mark_installed(self, rows, main) -> None:
         have = _installed_names(main, "FlatpakPage", "installed", "Id")
         for r in rows:
-            r["Installed"] = r["Installed"] or r.get("AppId") in have
+            r["Installed"] = r.get("_reported_installed", False) or r.get("AppId") in have
 
     def install(self, main, rows, options) -> None:
         refresh = getattr(_page(main, "FlatpakPage"), "refresh", None)
@@ -162,7 +189,7 @@ class FlatpakSource(CliSource):
             args = ["install", "flatpak", r["AppId"]]
             if options.get("flatpak_user"):
                 args.append("--user")
-            main.run_op(f"Installing {r['Name']}", args, False, refresh)
+            main.run_op(f"Installing {r['Name']}", args, False, refresh)  # FlatpakPage re-marks search
 
     def details(self, row: dict) -> str:
         from .widgets import details_html
@@ -212,7 +239,7 @@ class PrefixSource(Source):
         have = set(getattr(page, "installed", {}) or {})
         have |= _installed_names(main, "InstalledPage", "table", "Name")
         for r in rows:
-            r["Installed"] = r["Installed"] or (r.get("Name") in have and not r.get("shadowed_by"))
+            r["Installed"] = r.get("Name") in have and not r.get("shadowed_by")
             r["installed"] = "yes" if r["Installed"] else ""
 
     def install(self, main, rows, options) -> None:

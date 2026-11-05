@@ -72,12 +72,20 @@ if args == ["-Ssv"]:
     frame(PKGS)
 elif args[:2] == ["search", "standard"]:
     q = args[2].lower() if len(args) > 2 and not args[2].startswith("-") else ""
-    hits = [p for p in PKGS if q in p["Name"] or q in p["Description"].lower()]
+    # like the real CLI, sync-db search results say nothing about what is installed
+    hits = [{k: v for k, v in p.items() if k not in ("Installed", "Explicit")}
+            for p in PKGS if q in p["Name"] or q in p["Description"].lower()]
     frame(hits[:2])  # standard search streams pages
     if hits[2:]:
         frame(hits[2:])
 elif args == ["-Ls"]:
-    frame([p for p in PKGS if p["Installed"]])
+    # the local db holds foreign (AUR) packages too: yay, and shelly-bin providing "shelly"
+    frame([p for p in PKGS if p["Installed"]] + [
+        {"Name": "yay", "Version": "12.4.1-1", "Repository": "local", "Description": AUR[0]["Description"],
+         "Installed": True, "Explicit": True, "InstalledSize": 9_000_000},
+        {"Name": "shelly-bin", "Version": "3.2.0-1", "Repository": "local", "Provides": ["shelly"],
+         "Description": AUR[3]["Description"], "Installed": True, "Explicit": True,
+         "InstalledSize": 20_000_000}])
 elif args[:1] == ["-Ssdi"]:
     frame(next((dict(p, RequiredBy=["base"]) for p in PKGS if p["Name"] == args[1]), {}))
 elif args == ["-P"]:
