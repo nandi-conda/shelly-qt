@@ -45,6 +45,17 @@ AUR = [
     {"Id": 3, "Name": "zed-git", "PackageBaseId": 3, "PackageBase": "zed-git", "Version": "0.166.0.r1-1",
      "Description": "High-performance, multiplayer code editor (git build)", "NumVotes": 40,
      "Popularity": 1.2, "Maintainer": "someone", "FirstSubmitted": 1700000000, "LastModified": 1730000000},
+    # a split package base: shelly-bin builds shelly-flatpak-backend-bin too
+    {"Id": 4, "Name": "shelly-bin", "PackageBaseId": 4, "PackageBase": "shelly-bin", "Version": "3.2.0-1",
+     "Description": "Arch package manager front end (binary)", "Provides": ["shelly"],
+     "Conflicts": ["shelly", "shelly-git"], "NumVotes": 10, "Popularity": 0.5},
+    {"Id": 5, "Name": "shelly-flatpak-backend-bin", "PackageBaseId": 4, "PackageBase": "shelly-bin",
+     "Version": "3.2.0-1", "Description": "Flatpak backend for Shelly (binary)",
+     "Provides": ["shelly-flatpak-backend=3.2.0"], "Conflicts": ["shelly-flatpak-backend"],
+     "Depends": ["shelly-bin=3.2.0-1", "flatpak"], "NumVotes": 3, "Popularity": 0.2},
+    {"Id": 6, "Name": "shelly-flatpak-backend-git", "PackageBaseId": 6, "PackageBase": "shelly-git",
+     "Version": "3.2.0.r5-1", "Description": "Flatpak backend for Shelly (git)",
+     "Provides": ["shelly-flatpak-backend"], "NumVotes": 1, "Popularity": 0.1},
 ]
 GIMP = {"name": "GIMP", "app_id": "org.gimp.GIMP", "summary": "Image editor", "developer_name": "GIMP team"}
 FLATHUB = [
@@ -117,6 +128,16 @@ elif args[:1] in (["install"], ["remove"], ["upgrade"], ["update"], ["sync"], ["
                "DiffLines": ["+pkgname=%s" % args[2]], "Warnings": []})
         if not read_answer().get("ProceedWithUpdate"):
             frame({"$kind": "alpm.error", "ErrorMessage": "Build declined.", "Level": "Error"})
+            sys.exit(1)
+        if "shelly-bin" in args and "shelly-flatpak-backend-bin" not in args:
+            # what libalpm says when the replaced package is pinned by a dependent
+            frame({"$kind": "alpm.error", "Level": "Error", "ErrorMessage":
+                   'Could not install "shelly" because it would remove a package that provides '
+                   '"shelly=3.1.10", which "shelly-flatpak-backend" requires. Review the affected '
+                   'packages before continuing.\nDatabase path: /var/lib/pacman\n\n'
+                   'Technical details: libalpm (45): could not satisfy dependencies'})
+            frame({"$kind": "alpm.error", "Level": "Error", "ErrorMessage":
+                   "Could not complete the package operation.\nPackage: shelly-bin"})
             sys.exit(1)
     if args[:1] in (["install"], ["remove"], ["upgrade"]):
         frame({"$kind": "q.transaction", "QuestionId": "t1", "Action": args[0],

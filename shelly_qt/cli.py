@@ -119,6 +119,7 @@ class Operation(QObject):
         self.proc.finished.connect(self._finished)
         self.proc.errorOccurred.connect(self._error)
         self.failed_messages: list[str] = []
+        self.error_messages: list[str] = []  # every alpm.error, fatal or not
 
     @property
     def command_line(self) -> str:
@@ -168,6 +169,7 @@ class Operation(QObject):
                 self.log.emit(prefix + msg)
         elif k == "alpm.error":
             msg = f.get("ErrorMessage", "")
+            self.error_messages.append(msg)
             fatal = f.get("Level", "Error") == "Error" and not f.get("Recoverable", False)
             if fatal:
                 self.failed_messages.append(msg)

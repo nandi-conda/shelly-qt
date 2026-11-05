@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
                 on_success()
 
         d.completed.connect(finished)
+        d.run_follow_up = lambda t, a, priv, then: self.run_op(t, a, priv, then or on_success)
         d.finished.connect(lambda *_: self.ops.remove(d) if d in self.ops else None)
         d.run()
         return d

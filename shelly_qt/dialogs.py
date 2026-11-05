@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import protocol
+from . import cli, conflicts, protocol
 from .cli import Operation
 
 
@@ -308,6 +308,9 @@ class OperationDialog(QDialog):
         lay.addWidget(self.bar)
         self.banner = Banner()
         lay.addWidget(self.banner)
+        self.fix = FixPanel(self)
+        self.fix.chosen.connect(self._apply_fix)
+        lay.addWidget(self.fix)
         self.logview = QPlainTextEdit()
         self.logview.setReadOnly(True)
         self.logview.setFont(_mono())
@@ -328,6 +331,11 @@ class OperationDialog(QDialog):
         self.op.question.connect(self._question)
         self.op.done.connect(self._done)
         self.exit_code: int | None = None
+        self.args = list(args)
+        self.privileged = privileged
+        # Set by the main window: run_follow_up(title, args, privileged, then) starts
+        # another operation; ``then`` (or None) runs after it succeeds.
+        self.run_follow_up = None
 
     def run(self) -> None:
         self.show()
@@ -366,13 +374,112 @@ class OperationDialog(QDialog):
             else:
                 self.status.setText("Failed.")
                 self.banner.show_message("error", "This didn't work", summary, detail)
+                self._offer_fixes()
         self.cancel_btn.setEnabled(False)
         self.close_btn.setEnabled(True)
         self.close_btn.setDefault(True)
         self.completed.emit(code)
+
+    # ---- resolving "would remove a package that X requires" -------------
+    def _offer_fixes(self) -> None:
+        req = conflicts.install_request(self.args)
+        blockers = conflicts.find_blockers(self.op.error_messages + self.op.failed_messages)
+        if not req or not blockers or self.run_follow_up is None:
+            return
+        self.fix.start(req, blockers)
+        if req.backend != "aur":
+            self.fix.finish({})
+            return
+        # Look up the targets (for their package base) and every dependent's
+        # possible replacements, then pick one per dependent.
+        found: dict[str, list] = {}
+        names = list(dict.fromkeys(req.targets + [b.dependent for b in blockers]))
+
+        def got(name, res, err):
+            found[name] = res if isinstance(res, list) and not err else []
+            if len(found) < len(names):
+                return
+            targets = [r for t in req.targets for r in found.get(t, []) if isinstance(r, dict)]
+            picks = {}
+            for b in blockers:
+                cands = [r for r in found.get(b.dependent, []) if isinstance(r, dict)]
+                pick = conflicts.pick_replacement(b, req, targets, cands)
+                if pick:
+                    picks[b.dependent] = pick
+            self.fix.finish(picks)
+
+        for n in names:
+            cli.query(["search", "aur", n], lambda r, e, n=n: got(n, r, e),
+                      parse=lambda t: protocol.last_data(t, []))
+
+    def _apply_fix(self, title: str, args: list, then_retry: bool) -> None:
+        if self.run_follow_up is None:
+            return
+        retry = (lambda: self.run_follow_up(self.windowTitle(), self.args, self.privileged, None)) \
+            if then_retry else None
+        self.run_follow_up(title, args, self.privileged, retry)
+        self.accept()
 
     def reject(self) -> None:  # Esc / window close while running
         if self.exit_code is None:
             self.op.cancel()
             return
         super().reject()
+
+
+class FixPanel(QFrame):
+    """Offers ways past install blockers: replace dependents together, or remove them first."""
+
+    chosen = Signal(str, list, bool)  # title, args, retry original afterwards
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("fixpanel")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 2, 4, 2)
+        self.text = QLabel()
+        self.text.setWordWrap(True)
+        self.text.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(self.text)
+        self.row = QHBoxLayout()
+        self.row.addStretch()
+        lay.addLayout(self.row)
+        self.buttons: list[QPushButton] = []
+        self.req: conflicts.InstallRequest | None = None
+        self.blockers: list[conflicts.Blocker] = []
+        self.hide()
+
+    def start(self, req: "conflicts.InstallRequest", blockers: list) -> None:
+        self.req, self.blockers = req, blockers
+        self.text.setText("Looking for a way to resolve this…")
+        self.show()
+
+    def _button(self, label: str, title: str, args: list, retry: bool, primary=False) -> None:
+        b = QPushButton(label)
+        b.setDefault(primary)
+        b.clicked.connect(lambda: self.chosen.emit(title, args, retry))
+        self.row.addWidget(b)
+        self.buttons.append(b)
+
+    def finish(self, picks: dict) -> None:
+        from html import escape as h
+        req, blockers = self.req, self.blockers
+        deps = list(dict.fromkeys(b.dependent for b in blockers))
+        lines = [f"<b>{h(b.dependent)}</b> needs <code>{h(b.dependency)}</code>, which installing "
+                 f"{h(', '.join(req.targets))} would replace." for b in blockers]
+        what = ", ".join(req.targets)
+        if picks and all(d in picks for d in deps):
+            repl = [picks[d]["Name"] for d in deps]
+            pairs = ", ".join(f"<b>{h(picks[d]['Name'])}</b> {h(picks[d].get('Version') or '')} "
+                              f"in place of {h(d)}" for d in deps)
+            lines.append(f"Install them together: {pairs}. It comes from the same source, so the "
+                         "versions match, and the old package is replaced in the same step.")
+            self._button(f"Install with {', '.join(repl)}",
+                         f"Installing {what} with {', '.join(repl)}", req.args(repl), False, True)
+        else:
+            lines.append("No matching replacement was found from the same source.")
+        lines.append(f"Or remove {h(', '.join(deps))} first and install {h(what)} again "
+                     "(you can reinstall a compatible version afterwards).")
+        self._button(f"Remove {', '.join(deps)} and retry", f"Removing {', '.join(deps)}",
+                     conflicts.removal_args(blockers), True)
+        self.text.setText("<br>".join(lines))

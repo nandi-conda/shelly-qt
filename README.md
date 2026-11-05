@@ -32,6 +32,13 @@ by another column.
 New search sources (e.g. prefix.dev) plug in through `shelly_qt/search_sources.py`: subclass `Source`
 and append it to `SOURCES`. AppImages aren't a source because Shelly has no AppImage catalogue search.
 
+When an install fails because it would replace a package that something else pins to an exact version
+(installing `shelly-bin` over `shelly` while `shelly-flatpak-backend` needs `shelly=3.1.10`), the failed
+operation window offers fixes (`shelly_qt/conflicts.py`): **Install with …** adds the matching replacement
+from the same AUR package base (here `shelly-flatpak-backend-bin`, built alongside `shelly-bin`) or the
+same `-bin`/`-git` flavour, so both go in one transaction; **Remove … and retry** removes the dependents
+(`remove standard --no-cascade`) and runs the original install again.
+
 Privileged operations run through `pkexec`, as the GTK app does.
 
 prefix.dev needs a running prefix-alpm server (`just serve` in its checkout, `[prefix]` in pacman.conf); point Shelly-Qt at another one with `PREFIX_ALPM_URL` (default `http://127.0.0.1:8787`).

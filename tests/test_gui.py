@@ -529,3 +529,38 @@ def test_combined_search_relevance_sort_restorable(win):
     assert first() != "zed"
     page.table.view.sortByColumn(page.match_col, Qt.SortOrder.AscendingOrder)
     assert first() == "zed" and page.table.model.headerData(page.match_col, Qt.Orientation.Horizontal) == "Match"
+
+
+def _accept_all(q, parent=None):
+    return {"$kind": "a." + q["$kind"][2:], "QuestionId": q["QuestionId"],
+            "Accept": True, "ProceedWithUpdate": True}
+
+
+def test_blocked_install_offers_same_base_replacement(win, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", _accept_all)
+    d = win.run_op("Installing shelly-bin", ["install", "aur", "shelly-bin"], True)
+    wait_until(lambda: d.exit_code is not None)
+    assert d.exit_code == 1
+    wait_until(lambda: len(d.fix.buttons) == 2)
+    together, remove = d.fix.buttons
+    assert together.text() == "Install with shelly-flatpak-backend-bin"
+    assert "shelly-flatpak-backend" in d.fix.text.text()
+    together.click()
+    new = win.ops[-1]
+    assert new is not d
+    assert new.args == ["install", "aur", "shelly-bin", "shelly-flatpak-backend-bin"]
+    wait_until(lambda: new.exit_code is not None)
+    assert new.exit_code == 0
+
+
+def test_blocked_install_remove_then_retry(win, monkeypatch):
+    monkeypatch.setattr(dialogs, "ask", _accept_all)
+    d = win.run_op("Installing shelly-bin", ["install", "aur", "shelly-bin"], True)
+    wait_until(lambda: len(d.fix.buttons) == 2)
+    d.fix.buttons[1].click()
+    rm = win.ops[-1]
+    assert rm.args == ["remove", "standard", "shelly-flatpak-backend", "--no-cascade"]
+    wait_until(lambda: rm.exit_code is not None)
+    assert rm.exit_code == 0
+    wait_until(lambda: win.ops[-1] is not rm)
+    assert win.ops[-1].args == ["install", "aur", "shelly-bin"]
