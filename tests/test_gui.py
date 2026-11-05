@@ -44,7 +44,7 @@ def test_pages_load(win):
     wait_until(lambda: len(browse.table.model.rows) == 5)
     win.nav.setCurrentRow(1)
     wait_until(lambda: len(win.pages[1].table.model.rows) == 5)
-    wait_until(lambda: win.nav.item(2).text() == "Updates (4)")
+    wait_until(lambda: win.nav.item(2).text() == "Updates (5)")
     for i in range(3, 9):
         win.nav.setCurrentRow(i)
     wait_until(lambda: len(win.pages[3].installed.model.rows) == 1)
@@ -191,11 +191,12 @@ def test_installed_update_only_when_pending(win, answers):
     wait_until(lambda: len(t.model.rows) == 5)
     names = [t.row_at(t.proxy.index(i, 0))["Name"] for i in range(5)]
     ff, git = names.index("firefox"), names.index("git")
-    assert menu_texts(menu_at(t, ff)) == ["Update firefox (partial upgrade)…", "Remove firefox…"]
-    assert menu_texts(menu_at(t, git)) == ["Remove git…"]
+    assert menu_texts(menu_at(t, ff)) == ["Update firefox (partial upgrade)…", "Downgrade firefox…",
+                                          "Remove firefox…"]
+    assert menu_texts(menu_at(t, git)) == ["Downgrade git…", "Remove git…"]
     t.view.selectAll()
     menu = menu_at(t, 0)
-    assert menu_texts(menu) == ["Remove 5 packages…"]
+    assert menu_texts(menu) == ["Downgrade 5 packages…", "Remove 5 packages…"]
     ops = trigger(win, menu, "Remove")
     assert ops[0].op.args[:2] == ["remove", "standard"] and len(ops[0].op.args) >= 5
     finish(ops)
@@ -228,10 +229,10 @@ def test_aur_flatpak_appimage_menus(win, answers):
     wait_until(lambda: len(aur.model.rows) == 1 and len(flat.model.rows) == 1 and len(appimg.model.rows) == 1)
     assert menu_texts(menu_at(aur, 0)) == ["Review PKGBUILD", "Update yay", "Remove yay…"]
     assert menu_texts(menu_at(flat, 0)) == ["Update GIMP", "Remove GIMP…"]
-    assert menu_texts(menu_at(appimg, 0)) == ["Remove Obsidian…"]
+    assert menu_texts(menu_at(appimg, 0)) == ["Set update source…", "Remove Obsidian…"]
     win.pages[6].check()
     wait_until(lambda: win.pages[6].updates)
-    assert menu_texts(menu_at(appimg, 0)) == ["Update all AppImages", "Remove Obsidian…"]
+    assert menu_texts(menu_at(appimg, 0)) == ["Update all AppImages", "Set update source…", "Remove Obsidian…"]
 
     ops = trigger(win, menu_at(aur, 0), "Remove")
     win.pages[5].remove_config.setChecked(True)
@@ -594,7 +595,9 @@ def test_blocked_install_remove_then_retry(win, monkeypatch):
     wait_until(lambda: rm.exit_code is not None)
     assert rm.exit_code == 0
     wait_until(lambda: win.ops[-1] is not rm)
-    assert win.ops[-1].args == ["install", "aur", "shelly-bin"]
+    retry = win.ops[-1]
+    assert retry.args == ["install", "aur", "shelly-bin"]
+    wait_until(lambda: retry.exit_code is not None)  # don't leave it asking the next test
 
 
 def test_installed_column_shows_provider():
@@ -604,3 +607,85 @@ def test_installed_column_shows_provider():
     assert installed_text({"Installed": True, "InstalledVersion": "3.2.0-1"}) == "3.2.0-1"
     assert installed_text({"Installed": False, "ProvidedBy": "shelly-bin"}) == "via shelly-bin"
     assert installed_text({"Installed": False}) == ""
+
+
+# ---- Shelly 3.2.0 features ---------------------------------------------------
+
+def test_updates_show_replacements(win):
+    up = updates_loaded(win)
+    labels = [up.pkgs.proxy.index(i, 0).data() for i in range(up.pkgs.proxy.rowCount())]
+    assert "jack2 → pipewire-jack" in labels and "firefox" in labels
+    # the installed (old) name counts as pending, so Installed offers a partial upgrade for it
+    assert {"jack2", "pipewire-jack", "firefox"} <= up.pending["standard"]
+
+
+def test_downgrade_dialog_picks_previous_version(win):
+    from shelly_qt import downgrade
+    d = downgrade.DowngradeDialog(["firefox", "git", "nope"])
+    wait_until(lambda: d.ok.isEnabled())
+    combo = d.combos["firefox"]
+    assert combo.count() == 3 and combo.currentText().startswith("132.0.2-1")
+    assert combo.itemText(2).endswith("installed")
+    assert not d.combos["git"].isEnabled()  # only the installed version exists
+    assert not d.combos["nope"].isEnabled() and "No older version" in d.combos["nope"].currentText()
+    d.ignore.setChecked(True)
+    assert d.plan() == [("firefox", ["downgrade", "firefox", "--target",
+                                     "firefox-132.0.2-1-x86_64.pkg.tar.zst", "--ignore"])]
+    combo.setCurrentIndex(2)  # the installed one: nothing to do
+    assert d.plan() == []
+
+
+def test_downgrade_runs_packages_one_after_another(win, monkeypatch):
+    from shelly_qt import downgrade
+    win.nav.setCurrentRow(1)
+    page = win.pages[1]
+    monkeypatch.setattr(downgrade.DowngradeDialog, "exec", lambda self: True)
+    monkeypatch.setattr(downgrade.DowngradeDialog, "plan", lambda self: [
+        ("firefox", downgrade.command("firefox", "firefox-131.0-1-x86_64.pkg.tar.zst", False)),
+        ("git", downgrade.command("git", "2.47.0-1", True))])
+    n = len(win.ops)
+    page.downgrade_rows([{"Name": "firefox"}, {"Name": "git"}])
+    assert [d.op.args for d in win.ops[n:]] == [["downgrade", "firefox", "--target",
+                                                 "firefox-131.0-1-x86_64.pkg.tar.zst"]]
+    finish(win.ops[n:n + 1])
+    wait_until(lambda: len(win.ops) > n + 1 and win.ops[-1].op.args[:2] == ["downgrade", "git"])
+    assert win.ops[-1].op.args == ["downgrade", "git", "--target", "2.47.0-1", "--ignore"]
+    finish(win.ops[-1:])
+
+
+def test_operation_log_renders_ansi(win):
+    d = win.run_op("Sync", ["sync", "--force"], False)
+    wait_until(lambda: d.exit_code is not None)
+    text = d.logview.toPlainText()
+    assert "==> Working" in text and "\x1b" not in text
+    doc = d.logview.document()
+    block = next(b for b in (doc.findBlockByNumber(i) for i in range(doc.blockCount()))
+                 if b.text().startswith("==>"))
+    fmt = block.begin().fragment().charFormat()
+    assert fmt.foreground().color().green() > 150 and fmt.fontWeight() >= 700
+
+
+def test_appimage_update_source(win, monkeypatch):
+    from shelly_qt import pages
+    row = {"Name": "obsidian", "DesktopName": "Obsidian",
+           "RawUpdateInfo": "zsync|https://example.org/latest/Obsidian.AppImage.zsync"}
+    d = pages.UpdateSourceDialog(row)
+    assert d.value() == "Zsync" and d.url.text().startswith("zsync|")
+    assert d.command("obsidian") == ["sync", "appimage", "obsidian",
+                                     "zsync|https://example.org/latest/Obsidian.AppImage.zsync", "Zsync"]
+    d.kind.setCurrentIndex(d.kind.findData("GitHub"))
+    d.url.setText("obsidianmd/obsidian-releases")
+    d.pre.setChecked(True)
+    assert d.command("obsidian")[-2:] == ["GitHub", "--prerelease"]
+    d.kind.setCurrentIndex(d.kind.findData("None"))
+    assert d.command("obsidian") == ["sync", "appimage", "obsidian", "", "None"]
+    d.kind.setCurrentIndex(d.kind.findData("StaticUrl"))
+    d.url.setText("")
+    assert not d.save.isEnabled()
+    assert pages.guess_source({"RawUpdateInfo": "gh-releases-zsync|a|b|latest|*.zsync"}) == ("GitHub", "a/b")
+
+    monkeypatch.setattr(pages.UpdateSourceDialog, "exec", lambda self: True)
+    n = len(win.ops)
+    win.pages[6].set_source(row)
+    assert win.ops[n].op.args[:3] == ["sync", "appimage", "obsidian"]
+    finish(win.ops[n:])

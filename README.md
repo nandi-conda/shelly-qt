@@ -11,12 +11,12 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 |---|---|---|
 | Search (top bar, Ctrl+K) | One query across repo packages, the AUR, Flatpak and prefix.dev at once; merged, ranked results with a Source column, per-source toggles, Hide installed, and Install that runs the right command for each source | `search standard`, `search aur`, `search flatpak` |
 | Browse | All repo packages, filter, details, install | `-Ssv`, `-Ssdi`, `install standard` |
-| Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs) | `-Ls`, `remove standard` |
-| Updates | Repo + AUR + Flatpak updates, sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
+| Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs), downgrade to a cached or archived version (optionally held in IgnorePkg) | `-Ls`, `remove standard`, `downgrade --list-options`, `downgrade --target` |
+| Updates | Repo + AUR + Flatpak updates (repo replacements show as `old → new`), sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
 | AUR | Search, PKGBUILD preview, build+install, installed list, remove | `search aur`, `list aur`, `install/remove aur` |
 | prefix.dev | Live search of every public prefix.dev channel as you type (relevance-ranked, Channel column; installs from the chosen channel), shows what the `[prefix]` repo offers and what's installed, Install adds the package to a [prefix-alpm](https://fileapi.fastapicloud.dev/git/smelly/prefix-alpm.git) server, syncs and installs under `/opt/prefix`. Without a server it still searches prefix.dev directly | prefix-alpm `/search`, `/add`; `sync --force`, `install standard` |
 | Flatpak | Installed apps, Flathub search, install (system/user), remove, update | `-Lf`, `search flatpak`, `install/remove flatpak` |
-| AppImage | List, check/upgrade, install from file, remove | `list appimage`, `list-updates appimage`, … |
+| AppImage | List, check/upgrade, install from file, remove, set the update source (GitHub/GitLab/Codeberg/Forgejo/zsync/static URL) | `list appimage`, `list-updates appimage`, `sync appimage <name> <url> <type>`, … |
 | Maintenance | Sync, remove orphans, clean cache, repair DB, fix permissions, install local package | `purify`, `utility` |
 | Settings | View/edit `config.json` keys | `config list`, `config set` |
 
@@ -38,6 +38,11 @@ operation window offers fixes (`shelly_qt/conflicts.py`): **Install with …** a
 from the same AUR package base (here `shelly-flatpak-backend-bin`, built alongside `shelly-bin`) or the
 same `-bin`/`-git` flavour, so both go in one transaction; **Remove … and retry** removes the dependents
 (`remove standard --no-cascade`) and runs the original install again.
+
+Downgrading several packages runs one `downgrade <pkg> --target <file>` after another, because
+Shelly's UI mode takes one package per run. The operation window renders the ANSI colours that build
+tools print (`shelly_qt/ansi.py`) and drops other escape sequences. These need Shelly 3.2.0 or later
+for the `OldName` and `Zsync` parts; older versions just show the new name and reject Zsync.
 
 Privileged operations run through `pkexec`, as the GTK app does.
 

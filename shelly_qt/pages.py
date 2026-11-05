@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, QDialog,
                                QDialogButtonBox)
 
-from . import cli, protocol, selfupdate
+from . import cli, downgrade, protocol, selfupdate
 from .ranking import match_column, rank_rows
 from .widgets import PackageTable, details_html, key
 
@@ -233,10 +233,13 @@ class InstalledPage(_DetailMixin, Page):
         self.explicit.toggled.connect(self._apply)
         self.table.toolbar.addWidget(self.explicit)
         self.table.add_button("Remove…", self.remove)
+        self.table.add_button("Downgrade…", lambda: self.downgrade_rows(self.table.targets()),
+                              "Install an older version from the package cache or the Arch archive")
         self.table.add_button("Refresh", self.refresh)
         self.table.add_context_action(lambda rows: f"Update {what(rows)} (partial upgrade)…",
                                       lambda rows: update_packages(self, rows, "standard"),
                                       has_update(self, "standard"))
+        self.table.add_context_action(lambda rows: f"Downgrade {what(rows)}…", self.downgrade_rows)
         self.table.add_context_action(lambda rows: f"Remove {what(rows)}…",
                                       lambda rows: remove_packages(self, rows))
         self.table.current_changed.connect(self._show_details)
@@ -258,6 +261,13 @@ class InstalledPage(_DetailMixin, Page):
 
     def remove(self) -> None:
         remove_packages(self, self.table.targets())
+
+    def downgrade_rows(self, rows: list[dict]) -> None:
+        if not self.need_selection(rows):
+            return
+        d = downgrade.DowngradeDialog(self.names(rows), self)
+        if d.exec() and (plan := d.plan()):
+            downgrade.run_plan(self.main.run_op, plan, self.main.refresh_all)
 
 
 class RemoveOptions(QDialog):
@@ -294,6 +304,17 @@ class RemoveOptions(QDialog):
 
 # ------------------------------------------------------------------- updates
 
+def replaced(r: dict) -> str:
+    """The installed package a repo update replaces (Shelly 3.2+ ``OldName``), or ''."""
+    old = r.get("OldName") or ""
+    return old if old and old != r.get("Name") else ""
+
+
+def update_label(r: dict) -> str:
+    old = replaced(r)
+    return f"{old} → {r.get('Name', '')}" if old else str(r.get("Name", ""))
+
+
 class UpdatesPage(Page):
     title = "Updates"
 
@@ -320,7 +341,7 @@ class UpdatesPage(Page):
         lay.addLayout(top)
         self.tabs = QTabWidget()
         self.pkgs = PackageTable([
-            ("Name", key("Name")), ("Current", key("CurrentVersion")), ("New", key("NewVersion")),
+            ("Name", update_label), ("Current", key("CurrentVersion")), ("New", key("NewVersion")),
             ("Repository", key("Repository")), ("Download", size("DownloadSize")),
             ("Δ Size", size("SizeDifference")),
         ], checkable=False)
@@ -338,9 +359,10 @@ class UpdatesPage(Page):
         self.tabs.addTab(self.flatt, "Flatpak")
         lay.addWidget(self.tabs, 1)
         self.pkgs.current_changed.connect(lambda r: r and self.pkgs.detail.setHtml(details_html(
-            r.get("Name", ""), [("Current", r.get("CurrentVersion")), ("New", r.get("NewVersion")),
-                                ("Repository", r.get("Repository")), ("URL", r.get("Url")),
-                                ("Depends on", r.get("Depends"))], r.get("Description", ""))))
+            update_label(r), [("Replaces", replaced(r)),
+                              ("Current", r.get("CurrentVersion")), ("New", r.get("NewVersion")),
+                              ("Repository", r.get("Repository")), ("URL", r.get("Url")),
+                              ("Depends on", r.get("Depends"))], r.get("Description", ""))))
         self.aurt.current_changed.connect(lambda r: r and self.aurt.detail.setHtml(details_html(
             r.get("Name", ""), [("Current", r.get("Version")), ("New", r.get("NewVersion")),
                                 ("URL", r.get("Url"))], r.get("Description", ""))))
@@ -376,7 +398,8 @@ class UpdatesPage(Page):
         self.pkgs.set_rows(p)
         self.aurt.set_rows(a)
         self.flatt.set_rows(f)
-        self.pending = {"standard": {r.get("Name") for r in p}, "aur": {r.get("Name") for r in a},
+        # a replacement is pending under both the installed (old) and the new name
+        self.pending = {"standard": {n for r in p for n in (r.get("Name"), r.get("OldName")) if n}, "aur": {r.get("Name") for r in a},
                         "flatpak": {r.get("Id") for r in f}}
         self.tabs.setTabText(0, f"Repositories ({len(p)})")
         self.tabs.setTabText(1, f"AUR ({len(a)})")
@@ -873,6 +896,8 @@ class AppImagePage(Page):
         self.table.add_button("Refresh", self.refresh)
         self.table.add_context_action("Update all AppImages", lambda rows: self.upgrade(),
                                       lambda rows: any(r.get("Name") in self.updates for r in rows))
+        self.table.add_context_action("Set update source…", lambda rows: self.set_source(rows[0]),
+                                      lambda rows: len(rows) == 1)
         self.table.add_context_action(lambda rows: f"Remove {what(rows, 'AppImages')}…", self.remove_rows)
         self.table.current_changed.connect(lambda r: r and self.table.detail.setHtml(details_html(
             r.get("DesktopName") or r.get("Name", ""), [
@@ -926,6 +951,89 @@ class AppImagePage(Page):
 
     def upgrade(self) -> None:
         self.main.run_op("Upgrading AppImages", ["upgrade", "appimage"], False, self.refresh)
+
+    def set_source(self, row: dict) -> None:
+        d = UpdateSourceDialog(row, self)
+        if d.exec():
+            self.main.run_op(f"Setting the update source for {what([row])}",
+                             d.command(str(row.get("Name", ""))), False, self.refresh)
+
+
+# AppImage update providers `shelly sync appimage <name> <url> <type>` accepts,
+# with the hint shown for each. Zsync arrived in Shelly 3.2.0.
+UPDATE_SOURCES = [
+    ("GitHub", "GitHub releases", "owner/repo"),
+    ("GitLab", "GitLab releases", "owner/repo"),
+    ("Codeberg", "Codeberg releases", "owner/repo"),
+    ("Forgejo", "Forgejo releases", "https://host/owner/repo"),
+    ("Zsync", "zsync control file", "https://example.org/latest/App.AppImage.zsync"),
+    ("StaticUrl", "Static download URL", "https://example.org/App.AppImage"),
+    ("None", "No updates", ""),
+]
+
+
+def guess_source(row: dict) -> tuple[str, str]:
+    """(type, url) prefilled from what Shelly knows about the AppImage."""
+    raw = str(row.get("RawUpdateInfo") or "")
+    if raw.startswith("zsync|"):
+        return "Zsync", raw
+    parts = raw.split("|")
+    if parts[0] == "gh-releases-zsync" and len(parts) >= 3:
+        return "GitHub", f"{parts[1]}/{parts[2]}"
+    if row.get("RepoOwner") and row.get("RepoName"):
+        return "GitHub", f"{row['RepoOwner']}/{row['RepoName']}"
+    url = str(row.get("UpdateURl") or row.get("UpdateUrl") or "")
+    return ("Zsync" if url.endswith(".zsync") else "StaticUrl", url) if url else ("GitHub", "")
+
+
+class UpdateSourceDialog(QDialog):
+    def __init__(self, row: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Update source for {what([row])}")
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.kind = QComboBox()
+        for value, text, _ in UPDATE_SOURCES:
+            self.kind.addItem(text, value)
+        self.url = QLineEdit()
+        self.pre = QCheckBox("Include prereleases")
+        form.addRow("Provider", self.kind)
+        form.addRow("Location", self.url)
+        form.addRow("", self.pre)
+        lay.addLayout(form)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        self.save = bb.button(QDialogButtonBox.StandardButton.Save)
+        lay.addWidget(bb)
+        kind, url = guess_source(row)
+        self.kind.setCurrentIndex(max(0, self.kind.findData(kind)))
+        self.url.setText(url)
+        self.kind.currentIndexChanged.connect(self._kind_changed)
+        self.url.textChanged.connect(self._validate)
+        self._kind_changed()
+        self.resize(480, self.sizeHint().height())
+
+    def value(self) -> str:
+        return str(self.kind.currentData())
+
+    def _kind_changed(self) -> None:
+        hint = next(h for v, _, h in UPDATE_SOURCES if v == self.value())
+        none = self.value() == "None"
+        self.url.setPlaceholderText(hint)
+        self.url.setEnabled(not none)
+        self.pre.setEnabled(self.value() in ("GitHub", "GitLab", "Codeberg", "Forgejo"))
+        self._validate()
+
+    def _validate(self) -> None:
+        self.save.setEnabled(self.value() == "None" or bool(self.url.text().strip()))
+
+    def command(self, name: str) -> list[str]:
+        url = "" if self.value() == "None" else self.url.text().strip()
+        args = ["sync", "appimage", name, url, self.value()]
+        if self.pre.isEnabled() and self.pre.isChecked():
+            args.append("--prerelease")
+        return args
 
 
 # ----------------------------------------------------------------- utilities

@@ -89,8 +89,12 @@ elif args == ["-Ls"]:
 elif args[:1] == ["-Ssdi"]:
     frame(next((dict(p, RequiredBy=["base"]) for p in PKGS if p["Name"] == args[1]), {}))
 elif args == ["-P"]:
-    frame({"Packages": [{"Name": "firefox", "CurrentVersion": "133.0-1", "NewVersion": "134.0-1",
-                         "Repository": "extra", "DownloadSize": 70_000_000, "SizeDifference": 1_200_000}],
+    frame({"Packages": [{"Name": "firefox", "OldName": "firefox", "CurrentVersion": "133.0-1",
+                         "NewVersion": "134.0-1", "Repository": "extra", "DownloadSize": 70_000_000,
+                         "SizeDifference": 1_200_000},
+                        # a repo replacement (Shelly 3.2+ reports the installed name as OldName)
+                        {"Name": "pipewire-jack", "OldName": "jack2", "CurrentVersion": "1.9.22-1",
+                         "NewVersion": "1:1.2.6-1", "Repository": "extra", "DownloadSize": 20_000}],
            "Aur": [{"Name": "yay", "Version": "12.4.1-1", "NewVersion": "12.4.2-1"}],
            "Flatpak": [{"Name": "GIMP", "Id": "org.gimp.GIMP", "Version": "2.10.38", "NewVersion": "3.0.0",
                         "Branch": "stable", "Remote": "flathub"},
@@ -123,13 +127,27 @@ elif args[:2] == ["list", "appimage"]:
             "Path": "/home/user/Applications/Obsidian.AppImage"}])
 elif args[:2] == ["list-updates", "appimage"]:
     frame([{"Name": "obsidian", "Version": "1.8.0", "IsUpdateAvailable": True}])
+elif args[:1] == ["downgrade"] and "--list-options" in args:
+    name = args[1]
+    vers = {"firefox": ["131.0-1", "132.0.2-1", "133.0-1"], "git": ["2.47.1-1"]}.get(name)
+    if vers is None:
+        frame({"$kind": "alpm.error", "Level": "Error",
+               "ErrorMessage": f"No older version of {name} was found in the configured downgrade sources."})
+        sys.exit(1)
+    frame([{"Name": name, "Filename": f"{name}-{v}-x86_64.pkg.tar.zst",
+            "Location": "Local" if i else "Remote", "IsInstalled": i == len(vers) - 1}
+           for i, v in enumerate(vers)])
 elif args[:2] == ["config", "list"]:
     frame({"FileSizeDisplay": "Megabytes", "ProgressBarStyle": "Shell", "CollapsePkgbuildDiff": True,
            "DisableFlatpakUpdateCheck": False, "NativePackageBackend": "libalpm"})
 elif args[:2] == ["config", "set"]:
     frame({"$kind": "alpm.info", "EventType": "InformationalOutput", "Message": "saved"})
-elif args[:1] in (["install"], ["remove"], ["upgrade"], ["update"], ["sync"], ["purify"], ["utility"]):
+elif args[:1] in (["install"], ["remove"], ["upgrade"], ["update"], ["sync"], ["purify"], ["utility"],
+                  ["downgrade"]):
     frame({"$kind": "alpm.info", "EventType": "TransactionStart", "Message": f"Starting: {cmd}"})
+    # build tools colour their output; Shelly passes the escapes through
+    frame({"$kind": "alpm.info", "EventType": "InformationalOutput",
+           "Message": "\x1b[1;32m==>\x1b[0m\x1b[1m Working\x1b[0m"})
     if args[:2] == ["install", "aur"]:
         frame({"$kind": "q.pkgbuilddiff", "QuestionId": "p1", "PackageName": args[2],
                "OldPkgbuild": "", "NewPkgbuild": "pkgname=%s\n" % args[2],

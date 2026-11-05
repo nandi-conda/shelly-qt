@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
-from . import protocol
+from . import ansi, protocol
 
 
 def shelly_bin() -> list[str]:
@@ -169,10 +169,11 @@ class Operation(QObject):
                 self.log.emit(prefix + msg)
         elif k == "alpm.error":
             msg = f.get("ErrorMessage", "")
-            self.error_messages.append(msg)
+            plain = ansi.strip(msg)
+            self.error_messages.append(plain)
             fatal = f.get("Level", "Error") == "Error" and not f.get("Recoverable", False)
             if fatal:
-                self.failed_messages.append(msg)
+                self.failed_messages.append(plain)
             self.log.emit(("Error: " if fatal else "Warning: ") + msg)
         elif k == "alpm.progress":
             pct = max(0, min(100, int(f.get("Percent", 0) or 0)))

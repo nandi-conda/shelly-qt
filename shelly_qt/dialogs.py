@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import cli, conflicts, protocol
+from . import ansi, cli, conflicts, protocol
 from .cli import Operation
 
 
@@ -283,6 +283,29 @@ class Banner(QFrame):
         self.show()
 
 
+def ansi_format(a: "ansi.Attrs", pal: QPalette) -> QTextCharFormat:
+    fmt = QTextCharFormat()
+    fg = QColor(*a.fg) if a.fg else pal.color(QPalette.ColorRole.Text)
+    bg = QColor(*a.bg) if a.bg else None
+    if a.inverse:
+        fg, bg = (bg or pal.color(QPalette.ColorRole.Base)), fg
+    if a.dim:
+        fg.setAlphaF(0.6)
+    if a.hidden:
+        fg = bg or pal.color(QPalette.ColorRole.Base)
+    if a.fg or a.inverse or a.dim or a.hidden:
+        fmt.setForeground(fg)
+    if bg is not None:
+        fmt.setBackground(bg)
+    if a.bold:
+        fmt.setFontWeight(QFont.Weight.Bold)
+    if a.italic:
+        fmt.setFontItalic(True)
+    if a.underline:
+        fmt.setFontUnderline(True)
+    return fmt
+
+
 class OperationDialog(QDialog):
     """Runs an :class:`Operation`, streams its log/progress and answers questions.
 
@@ -314,6 +337,7 @@ class OperationDialog(QDialog):
         self.logview = QPlainTextEdit()
         self.logview.setReadOnly(True)
         self.logview.setFont(_mono())
+        self._ansi = ansi.Attrs()
         lay.addWidget(self.logview)
         row = QHBoxLayout()
         row.addStretch()
@@ -342,8 +366,19 @@ class OperationDialog(QDialog):
         self.op.start()
 
     def _log(self, line: str) -> None:
-        self.logview.appendPlainText(line)
+        for text in line.split("\n"):
+            self._log_line(text)
         self.logview.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _log_line(self, line: str) -> None:
+        """Append one console line, rendering its ANSI colours and styles."""
+        runs, self._ansi = ansi.parse(line, self._ansi)
+        cur = QTextCursor(self.logview.document())
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        if not self.logview.document().isEmpty():
+            cur.insertBlock()
+        for text, a in runs:
+            cur.insertText(text, ansi_format(a, self.logview.palette()))
 
     def _progress(self, pct: int, label: str) -> None:
         self.bar.setRange(0, 100)
