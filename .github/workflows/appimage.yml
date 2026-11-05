@@ -1,14 +1,16 @@
 # Build Shelly-Qt AppImages (x86_64 + aarch64) with embedded zsync update info.
 #
 # Tag `v*`           -> publishes to that tag's release; installed copies follow `latest`.
-# Manual dispatch    -> publishes to the rolling `continuous` prerelease; copies follow `continuous`.
+# Push to main / manual dispatch -> publishes to the rolling `continuous` prerelease; copies follow `continuous`.
 #
 # Packaging lives in packaging/appimage/ (based on the appimage-ci skill). Local build: `just appimage`.
 name: AppImage
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
+    paths-ignore: ['README.md', 'screenshots/**']
   workflow_dispatch:
 
 permissions:
