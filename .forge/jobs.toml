@@ -5,4 +5,8 @@
 name = "appimage"
 branches = ["main"]
 timeout = 3600
-run = "bash packaging/appimage/forge-build.sh"
+# The forge puts the Depot CLI on PATH only for scripts that mention `depot`.
+run = """
+depot --version
+bash packaging/appimage/forge-build.sh
+"""
