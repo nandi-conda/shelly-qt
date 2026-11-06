@@ -1,9 +1,10 @@
-# fileapi forge CI: build the AppImages (x86_64 + aarch64) on Depot for every push to main.
-# See packaging/appimage/forge-build.sh. Needs the DEPOT_TOKEN secret (a user secret works);
-# GH_TOKEN, if set, publishes them to the GitHub `continuous` release.
+# fileapi forge CI: build the AppImages (x86_64 + aarch64) on Depot and publish them as a
+# release of this repo: `continuous` for every push to main, <tag> for v* tags.
+# See packaging/appimage/forge-build.sh. Needs DEPOT_TOKEN (a user secret works) and DEPOT_PROJECT_ID.
 [[job]]
 name = "appimage"
 branches = ["main"]
+tags = ["v*"]
 timeout = 3600
 # The forge puts the Depot CLI on PATH only for scripts that mention `depot`.
 run = """

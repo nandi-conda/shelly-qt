@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
 # fileapi forge job: build both AppImages on Depot's native amd64/arm64 builders
-# (packaging/appimage/Dockerfile), then optionally publish them to GitHub.
+# (packaging/appimage/Dockerfile), then publish them as a release of this fileapi repo.
+#
+#   push to main -> rolling `continuous` prerelease (recreated at this commit)
+#   tag v*       -> release <tag>
 #
 # Env (from the forge): DEPOT_TOKEN (required), DEPOT_PROJECT_ID (optional; else the
-# Depot project named shelly-qt is found or created), GH_TOKEN (optional; a GitHub token
-# with Contents read/write on $GH_OWNER/$GH_REPO, publishes to the `continuous` release),
-# FORGE_SHA, FORGE_BRANCH.
+# Depot project named shelly-qt is found or created, which needs a user token),
+# FORGE_SHA, FORGE_TAG, FORGE_TOKEN (+ forge-release on PATH).
+#
+# The embedded update info still points at the GitHub releases (built by GitHub
+# Actions): AppImageUpdate's zsync needs HTTP range requests, which fileapi's asset
+# downloads don't serve yet.
 set -euo pipefail
 
 APP_NAME=${APP_NAME:-Shelly-Qt}
 GH_OWNER=${GH_OWNER:-nandi-conda}
 GH_REPO=${GH_REPO:-shelly-qt}
-CHANNEL=continuous
 sha=${FORGE_SHA:-$(date +%s)}
-version="0.1.0-g${sha:0:7}"
+if [[ -n ${FORGE_TAG:-} ]]; then
+  tag=$FORGE_TAG; version=${FORGE_TAG#v}; CHANNEL=latest
+else
+  tag=continuous; version="0.1.0-g${sha:0:7}"; CHANNEL=continuous
+fi
 
 command -v depot >/dev/null || { echo "error: depot CLI not on PATH" >&2; exit 1; }
 [[ -n ${DEPOT_TOKEN:-} ]] || { echo "error: DEPOT_TOKEN secret not set" >&2; exit 1; }
@@ -61,48 +70,13 @@ find "$out" -type f -exec mv -t dist {} +
 ls -la dist
 cat dist/*.sha256
 
-if [[ -z ${GH_TOKEN:-} ]]; then
-  echo "GH_TOKEN not set: built and tested, not published."
-  exit 0
+command -v forge-release >/dev/null || { echo "error: forge-release not on PATH (old fileapi?)" >&2; exit 1; }
+if [[ $tag == continuous ]]; then
+  forge-release delete continuous 2>/dev/null || true
+  forge-release create continuous --prerelease --ref "$sha" --title "Continuous build" \
+    --notes "Rolling build of ${sha:0:7} on Depot. Built by the fileapi forge job \`appimage\`."
+else
+  forge-release create "$tag" --ref "$sha" --title "Shelly-Qt $tag" 2>/dev/null || true
 fi
-
-# Recreate the rolling `continuous` prerelease at this commit and upload the files.
-python3 - "$GH_OWNER/$GH_REPO" "$sha" dist <<'PY'
-import json, os, sys, urllib.error, urllib.request
-from pathlib import Path
-repo, sha, dist = sys.argv[1], sys.argv[2], Path(sys.argv[3])
-tag = "continuous"
-H = {"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json",
-     "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "fileapi-forge-shelly-qt"}
-
-def call(method, url, body=None, headers=None, raw=None):
-    data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
-    req = urllib.request.Request(url, data=data, method=method, headers={**H, **(headers or {})})
-    try:
-        with urllib.request.urlopen(req, timeout=600) as r:
-            txt = r.read()
-            return r.status, json.loads(txt) if txt else None
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode(errors="replace")
-
-api = f"https://api.github.com/repos/{repo}"
-st, rel = call("GET", f"{api}/releases/tags/{tag}")
-if st == 200:
-    call("DELETE", f"{api}/releases/{rel['id']}")
-st, _ = call("DELETE", f"{api}/git/refs/tags/{tag}")
-st, rel = call("POST", f"{api}/releases", {
-    "tag_name": tag, "target_commitish": sha, "name": "Continuous build", "prerelease": True,
-    "body": f"Rolling build of {sha[:7]} (fileapi forge + Depot). Installed copies update with AppImageUpdate."})
-if st != 201:
-    sys.exit(f"create release failed: {st} {rel}")
-upload = rel["upload_url"].split("{")[0]
-for f in sorted(dist.iterdir()):
-    if not f.name.endswith((".AppImage", ".zsync")):
-        continue
-    st, res = call("POST", f"{upload}?name={f.name}", raw=f.read_bytes(),
-                   headers={"Content-Type": "application/octet-stream"})
-    if st != 201:
-        sys.exit(f"upload {f.name} failed: {st} {res}")
-    print("uploaded", res["browser_download_url"])
-print("release:", rel["html_url"])
-PY
+forge-release upload "$tag" dist/*
+echo "Published: ${FORGE_URL:-https://fileapi.fastapicloud.dev}/forge/#${FORGE_REPO:-nandi.uk/shelly-qt} (Releases, $tag)"
