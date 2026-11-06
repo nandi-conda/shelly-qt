@@ -314,7 +314,8 @@ def about_html() -> str:
     if b.get("channel"):
         rows.append(("Channel", escape(b["channel"])))
     if b.get("commit"):
-        rows.append(("Commit", f"<a href='{buildinfo.commit_url()}'>{escape(buildinfo.short_commit())}</a>"))
+        rows.append(("Commit", f"<code>{escape(buildinfo.short_commit())}</code> "
+                               f"(<a href='{buildinfo.commit_url()}'>fileapi forge</a>)"))
     if b.get("date"):
         rows.append(("Built", escape(b["date"])))
     if os.environ.get("APPIMAGE"):
@@ -323,7 +324,8 @@ def about_html() -> str:
              ("Qt", f"{qVersion()} (PySide6 {PySide6.__version__}), Python {platform.python_version()}")]
     table = "".join(f"<tr><td><b>{k}</b>&nbsp;&nbsp;</td><td>{v}</td></tr>" for k, v in rows)
     return (f"<h3>Shelly-Qt {escape(b['version'])}</h3><p>A PySide6 front end for the "
-            "<a href='https://github.com/Seafoam-Labs/Shelly-ALPM'>Shelly</a> package manager.</p>"
+            "<a href='https://github.com/Seafoam-Labs/Shelly-ALPM'>Shelly</a> package manager. "
+            f"Source: <a href='{buildinfo.REPO_URL}'>fileapi forge</a>.</p>"
             f"<table>{table}</table>")
 
 

@@ -12,7 +12,8 @@ from pathlib import Path
 
 from . import __version__
 
-REPO_URL = "https://github.com/nandi-conda/shelly-qt"
+# The canonical repo is on fileapi (git: smelly/shelly-qt); GitHub is a mirror.
+REPO_URL = "https://fileapi.fastapicloud.dev/forge/#nandi.uk/shelly-qt"
 
 
 @lru_cache(maxsize=1)
@@ -54,5 +55,6 @@ def version_string() -> str:
 
 
 def commit_url() -> str:
-    c = info().get("commit", "")
-    return f"{REPO_URL}/commit/{c}" if c else ""
+    """Where to look at the build's commit. The forge has no per-commit deep link,
+    so this opens the repo (its log lists the commit)."""
+    return REPO_URL if info().get("commit") else ""

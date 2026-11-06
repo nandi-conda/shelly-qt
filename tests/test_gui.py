@@ -698,7 +698,7 @@ def test_version_shown(win, monkeypatch):
     assert win.version_button.text().startswith("v")
     html = app_mod.about_html()
     assert "9.9.9" in html and "continuous" in html and "abcdef1" in html
-    assert "commit/abcdef1234567890" in html
+    assert "fileapi.fastapicloud.dev/forge/" in html and "github.com/nandi-conda" not in html
     assert buildinfo.version_string() == "9.9.9 (continuous, abcdef1)"
 
 
