@@ -21,7 +21,13 @@ command -v depot >/dev/null || { echo "error: depot CLI not on PATH" >&2; exit 1
 project=${DEPOT_PROJECT_ID:-}
 if [[ -z $project ]]; then
   find_project() {
-    depot projects list --output json | python3 -c '
+    local raw
+    raw=$(depot projects list --output json 2>&1) || {
+      echo "error: can't list Depot projects with this DEPOT_TOKEN ($raw)." >&2
+      echo "       A project or org token can't look projects up: set the DEPOT_PROJECT_ID secret." >&2
+      return 1
+    }
+    printf '%s' "$raw" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 if isinstance(d, dict):
@@ -32,7 +38,7 @@ for p in d:
         print(low.get("projectid") or low.get("id")); break
 ' "$GH_REPO"
   }
-  project=$(find_project)
+  project=$(find_project) || exit 1
   if [[ -z $project ]]; then
     echo "Creating Depot project $GH_REPO"
     depot projects create "$GH_REPO" >/dev/null
