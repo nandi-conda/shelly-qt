@@ -1,0 +1,8 @@
+.git
+.pixi
+build
+dist
+out
+**/__pycache__
+.pytest_cache
+screenshots
