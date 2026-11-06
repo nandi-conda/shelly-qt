@@ -689,3 +689,21 @@ def test_appimage_update_source(win, monkeypatch):
     win.pages[6].set_source(row)
     assert win.ops[n].op.args[:3] == ["sync", "appimage", "obsidian"]
     finish(win.ops[n:])
+
+
+def test_version_shown(win, monkeypatch):
+    from shelly_qt import app as app_mod, buildinfo
+    monkeypatch.setattr(buildinfo, "info", lambda: {"version": "9.9.9", "channel": "continuous",
+                                                    "commit": "abcdef1234567890", "date": "2026-11-06 00:00 UTC"})
+    assert win.version_button.text().startswith("v")
+    html = app_mod.about_html()
+    assert "9.9.9" in html and "continuous" in html and "abcdef1" in html
+    assert "commit/abcdef1234567890" in html
+    assert buildinfo.version_string() == "9.9.9 (continuous, abcdef1)"
+
+
+def test_version_string_skips_commit_already_in_version(monkeypatch):
+    from shelly_qt import buildinfo
+    monkeypatch.setattr(buildinfo, "info", lambda: {"version": "0.1.0-3-gabcdef1", "channel": "continuous",
+                                                    "commit": "abcdef1234567890"})
+    assert buildinfo.version_string() == "0.1.0-3-gabcdef1 (continuous)"

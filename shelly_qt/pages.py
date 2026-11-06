@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, QDialog,
                                QDialogButtonBox)
 
-from . import cli, downgrade, protocol, selfupdate
+from . import buildinfo, cli, downgrade, protocol, selfupdate
 from .ranking import match_column, rank_rows
 from .widgets import PackageTable, details_html, key
 
@@ -1118,6 +1118,10 @@ class SettingsPage(Page):
         self.table.itemChanged.connect(self._changed)
         lay.addWidget(self.table, 1)
         row = QHBoxLayout()
+        ver = QPushButton(QIcon.fromTheme("help-about"), "About Shelly-Qt…")
+        ver.setToolTip(f"Shelly-Qt {buildinfo.version_string()}")
+        ver.clicked.connect(lambda: self.main.about())
+        row.addWidget(ver)
         row.addStretch(1)
         if selfupdate.available():
             upd = QPushButton(QIcon.fromTheme("system-software-update"), "Check for Shelly-Qt updates…")

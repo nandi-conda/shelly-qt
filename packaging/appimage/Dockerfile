@@ -22,6 +22,8 @@ COPY . .
 
 ARG VERSION=dev
 ARG CHANNEL=continuous
+# Commit baked into the app (shown in About / the status bar); .git is not in the context.
+ARG COMMIT=
 # The last RUN also smoke-tests: update info, --version, the bundled updater, and the GUI
 # staying up for 10 s on X11 against the fake CLI.
 ARG APP_NAME=Shelly-Qt
@@ -32,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
     --mount=type=cache,target=/tmp/appimage-tools,sharing=locked \
     set -eux; \
     export ARCH=$(uname -m) PIXI_LOCKED=1 QT_QPA_PLATFORM=offscreen TOOLDIR=/tmp/appimage-tools; \
+    export BUILD_COMMIT="$COMMIT" BUILD_CHANNEL="$CHANNEL" BUILD_VERSION="$VERSION"; \
     file="$APP_NAME-$VERSION-$ARCH.AppImage"; \
     export RUNTIME_FILE=/tmp/appimage-tools/runtime-$ARCH; \
     [ -s "$RUNTIME_FILE" ] || curl -fsSL --retry 3 -o "$RUNTIME_FILE" \

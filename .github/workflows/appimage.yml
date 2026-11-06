@@ -55,6 +55,7 @@ jobs:
           owner=${GITHUB_REPOSITORY%%/*}
           repo=${GITHUB_REPOSITORY#*/}
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "file=${APP_NAME}-${version}-${ARCH}.AppImage" >> "$GITHUB_OUTPUT"
           echo "updinfo=gh-releases-zsync|$owner|$repo|$channel|${APP_NAME}-*-${ARCH}.AppImage.zsync" >> "$GITHUB_OUTPUT"
 
@@ -77,6 +78,9 @@ jobs:
         run: packaging/appimage/build-appdir.sh build/${APP_NAME}.AppDir
         env:
           PIXI_LOCKED: 1
+          BUILD_COMMIT: ${{ github.sha }}
+          BUILD_VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_CHANNEL: ${{ steps.meta.outputs.channel }}
           QT_QPA_PLATFORM: offscreen
 
       - name: Build AppImage

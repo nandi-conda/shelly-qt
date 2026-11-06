@@ -61,7 +61,7 @@ out=$(mktemp -d)
 depot build --project "$project" --progress plain \
   --platform linux/amd64,linux/arm64 \
   -f packaging/appimage/Dockerfile \
-  --build-arg VERSION="$version" --build-arg CHANNEL="$CHANNEL" \
+  --build-arg VERSION="$version" --build-arg CHANNEL="$CHANNEL" --build-arg COMMIT="${FORGE_SHA:-}" \
   --build-arg APP_NAME="$APP_NAME" --build-arg GH_OWNER="$GH_OWNER" --build-arg GH_REPO="$GH_REPO" \
   --output "type=local,dest=$out" .
 

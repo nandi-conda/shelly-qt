@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel, QLi
                                QStackedWidget,
                                QStatusBar, QVBoxLayout, QWidget)
 
-from . import __version__, cli, selfupdate
+from . import buildinfo, cli, selfupdate
 from .dialogs import OperationDialog
 from .links import install_url_handler
 from .openfile import Target, targets_from_argv
@@ -97,6 +97,14 @@ class MainWindow(QMainWindow):
         self.update_button.clicked.connect(lambda: self.check_for_updates(update_known=True))
         self.update_button.hide()
         self.statusBar().addPermanentWidget(self.update_button)
+        # version + build commit, always visible; click for the About box
+        self.version_button = QPushButton(f"v{buildinfo.version_string()}")
+        self.version_button.setObjectName("versionButton")
+        self.version_button.setFlat(True)
+        self.version_button.setToolTip("About Shelly-Qt (F1)")
+        self.version_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.version_button.clicked.connect(self.about)
+        self.statusBar().addPermanentWidget(self.version_button)
         self.update_dialog: selfupdate.UpdateDialog | None = None
         self._update_check: selfupdate.UpdateCheck | None = None
 
@@ -293,10 +301,30 @@ class MainWindow(QMainWindow):
             self.status("A newer Shelly-Qt is available")
 
     def about(self) -> None:
-        QMessageBox.about(self, "About Shelly-Qt",
-                          f"<b>Shelly-Qt {__version__}</b><p>A PySide6 front end for the "
-                          "<a href='https://github.com/Seafoam-Labs/Shelly-ALPM'>Shelly</a> package "
-                          f"manager.</p><p>CLI: <code>{' '.join(cli.shelly_bin())}</code></p>")
+        QMessageBox.about(self, "About Shelly-Qt", about_html())
+
+
+def about_html() -> str:
+    import platform
+
+    import PySide6
+    from PySide6.QtCore import qVersion
+    b = buildinfo.info()
+    rows = [("Version", escape(b["version"]))]
+    if b.get("channel"):
+        rows.append(("Channel", escape(b["channel"])))
+    if b.get("commit"):
+        rows.append(("Commit", f"<a href='{buildinfo.commit_url()}'>{escape(buildinfo.short_commit())}</a>"))
+    if b.get("date"):
+        rows.append(("Built", escape(b["date"])))
+    if os.environ.get("APPIMAGE"):
+        rows.append(("AppImage", f"<code>{escape(os.environ['APPIMAGE'])}</code>"))
+    rows += [("Shelly CLI", f"<code>{escape(' '.join(cli.shelly_bin()))}</code>"),
+             ("Qt", f"{qVersion()} (PySide6 {PySide6.__version__}), Python {platform.python_version()}")]
+    table = "".join(f"<tr><td><b>{k}</b>&nbsp;&nbsp;</td><td>{v}</td></tr>" for k, v in rows)
+    return (f"<h3>Shelly-Qt {escape(b['version'])}</h3><p>A PySide6 front end for the "
+            "<a href='https://github.com/Seafoam-Labs/Shelly-ALPM'>Shelly</a> package manager.</p>"
+            f"<table>{table}</table>")
 
 
 def desktop_entry_installed(app_id: str) -> bool:
@@ -324,7 +352,7 @@ def install_sigint_handler(app: QApplication) -> QTimer:
 
 def main() -> int:
     if "--version" in sys.argv[1:]:
-        print(f"shelly-qt {__version__}")
+        print(f"shelly-qt {buildinfo.version_string()}")
         return 0
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
