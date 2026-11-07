@@ -30,7 +30,6 @@ def test_mixed_sources_rank_exact_official_first():
          "installs_last_month": 200000, "verification_verified": True},
         {"Name": "firefox", "_source": "repo", "Repository": "extra"},
         {"Name": "firefox-i18n-de", "_source": "repo", "Repository": "extra"},
-        {"Name": "firefox", "conda_name": "firefox", "_source": "prefix"},
     ]
     out = rank_rows(rows, "firefox")
     assert names(out)[:2] == [("Firefox", "flatpak"), ("firefox", "repo")] or \

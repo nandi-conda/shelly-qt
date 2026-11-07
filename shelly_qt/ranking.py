@@ -1,4 +1,4 @@
-"""Relevance ranking shared by every package search (combined, AUR, Flathub, prefix.dev).
+"""Relevance ranking shared by every package search (combined, AUR, Flathub).
 
 Rows are ordered by, in turn:
 
@@ -8,7 +8,7 @@ Rows are ordered by, in turn:
 2. a penalty for split/variant packages the query didn't ask for (``-debug``,
    ``-git``, ``-docs``, ``lib…``, ``python-…``);
 3. a popularity score: official repos and installed packages get a boost, AUR
-   votes, Flathub installs and prefix.dev downloads count on a log scale;
+   votes and Flathub installs count on a log scale;
 4. shorter names, then name, then source order.
 
 :func:`rank_rows` stores the result on each row as ``_rank`` (1 = best) and
@@ -31,12 +31,11 @@ VARIANT_SUFFIXES = ("debug", "dbg", "git", "hg", "svn", "nightly", "docs", "doc"
                     "headers", "static", "i18n", "l10n", "lang", "locale", "tests", "examples")
 LANG_PREFIXES = ("python", "python3", "perl", "ruby", "haskell", "lua", "node", "r", "rust", "go",
                  "ocaml", "php", "lib32")
-SOURCE_ORDER = ("repo", "flatpak", "aur", "prefix")
+SOURCE_ORDER = ("repo", "flatpak", "aur")
 
 
 def name_of(row: dict) -> str:
-    # prefix.dev rows are served as conda-<name>; rank on the conda package name
-    return str(row.get("conda_name") or row.get("Name") or row.get("name") or "").lower()
+    return str(row.get("Name") or row.get("name") or "").lower()
 
 
 def ident_of(row: dict) -> str:
@@ -103,8 +102,6 @@ def popularity(row: dict, source: str | None = None) -> float:
     elif src == "flatpak":
         score += 0.8 * _log(row.get("installs_last_month") or row.get("installs"), 5)
         score += 0.1 if row.get("verification_verified") else 0.0
-    elif src == "prefix":
-        score += 0.6 * _log(row.get("downloads") or row.get("download_count"), 7)
     if row.get("Installed") or row.get("installed"):
         score += 0.2
     return score

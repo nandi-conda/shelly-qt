@@ -9,12 +9,11 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 
 | Page | What it does | CLI used |
 |---|---|---|
-| Search (top bar, Ctrl+K) | One query across repo packages, the AUR, Flatpak and prefix.dev at once; merged, ranked results with a Source column, per-source toggles, Hide installed, and Install that runs the right command for each source | `search standard`, `search aur`, `search flatpak` |
+| Search (top bar, Ctrl+K) | One query across repo packages, the AUR and Flatpak at once; merged, ranked results with a Source column, per-source toggles, Hide installed, and Install that runs the right command for each source | `search standard`, `search aur`, `search flatpak` |
 | Browse | All repo packages, filter, details, install | `-Ssv`, `-Ssdi`, `install standard` |
 | Installed | Installed packages, explicit filter, remove (cascade / optdeps / configs), downgrade to a cached or archived version (optionally held in IgnorePkg) | `-Ls`, `remove standard`, `downgrade --list-options`, `downgrade --target` |
 | Updates | Repo + AUR + Flatpak updates (repo replacements show as `old → new`), sync DBs, upgrade all | `-P`, `sync --force`, `upgrade all` |
 | AUR | Search, PKGBUILD preview, build+install, installed list, remove | `search aur`, `list aur`, `install/remove aur` |
-| prefix.dev | Live search of every public prefix.dev channel as you type (relevance-ranked, Channel column; installs from the chosen channel), shows what the `[prefix]` repo offers and what's installed, Install adds the package to a [prefix-alpm](https://fileapi.fastapicloud.dev/git/smelly/prefix-alpm.git) server, syncs and installs under `/opt/prefix`. Without a server it still searches prefix.dev directly | prefix-alpm `/search`, `/add`; `sync --force`, `install standard` |
 | Flatpak | Installed apps, Flathub search, install (system/user), remove, update | `-Lf`, `search flatpak`, `install/remove flatpak` |
 | AppImage | List, check/upgrade, install from file, remove, set the update source (GitHub/GitLab/Codeberg/Forgejo/zsync/static URL) | `list appimage`, `list-updates appimage`, `sync appimage <name> <url> <type>`, … |
 | Maintenance | Sync, remove orphans, clean cache, repair DB, fix permissions, install local package | `purify`, `utility` |
@@ -23,13 +22,13 @@ with `--ui-mode`, results come back as base64 JSON frames on stdout, and interac
 Right-click any list item for **Update** and **Remove**, wherever they apply: Update shows on the Updates tabs and on installed items with a pending update (`update standard|aur|flatpak <name>`; repo packages are a partial upgrade, which the CLI warns about), Remove on anything installed. The menu acts on the clicked row, or all selected rows.
 
 Search results are ranked by relevance (`shelly_qt/ranking.py`), used by the combined search and the
-AUR, Flathub and prefix.dev pages: exact name, then name prefix, then a word in the name, then substring,
+AUR and Flathub pages: exact name, then name prefix, then a word in the name, then substring,
 then description-only matches; `-debug`/`-git`/`-docs`/`lib…`/`python-…` variants you didn't type sink;
-official repos, installed packages, AUR votes, Flathub installs and prefix.dev downloads break ties. The
+official repos, installed packages, AUR votes and Flathub installs break ties. The
 **Match** column shows why a row matched; click its header to get back to relevance order after sorting
 by another column.
 
-New search sources (e.g. prefix.dev) plug in through `shelly_qt/search_sources.py`: subclass `Source`
+New search sources plug in through `shelly_qt/search_sources.py`: subclass `Source`
 and append it to `SOURCES`. AppImages aren't a source because Shelly has no AppImage catalogue search.
 
 When an install fails because it would replace a package that something else pins to an exact version
@@ -46,7 +45,6 @@ for the `OldName` and `Zsync` parts; older versions just show the new name and r
 
 Privileged operations run through `pkexec`, as the GTK app does.
 
-prefix.dev needs a running prefix-alpm server (`just serve` in its checkout, `[prefix]` in pacman.conf); point Shelly-Qt at another one with `PREFIX_ALPM_URL` (default `http://127.0.0.1:8787`).
 
 ## Setup
 
