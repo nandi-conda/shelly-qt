@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QHBoxLayout, QLabel, QLi
 
 from . import buildinfo, cli, selfupdate
 from .dialogs import OperationDialog
+from .kdecolors import follow_kde_scheme
 from .links import install_url_handler
 from .openfile import Target, targets_from_argv
 from .pages import (AppImagePage, AurPage, BrowsePage, FlatpakPage, InstalledPage, SettingsPage,
@@ -358,6 +359,7 @@ def main() -> int:
         return 0
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
+    scheme_follower = follow_kde_scheme(app)  # noqa: F841  (must outlive app.exec())
     if desktop_entry_installed("shelly-qt"):
         # Only claim the app id when its .desktop file exists; otherwise the
         # xdg-desktop-portal registry rejects it with a startup warning.
