@@ -359,7 +359,7 @@ def main() -> int:
         return 0
     app = QApplication(sys.argv)
     app.setApplicationName("Shelly-Qt")
-    scheme_follower = follow_kde_scheme(app)  # noqa: F841  (must outlive app.exec())
+    scheme_follower = follow_kde_scheme(app)
     if desktop_entry_installed("shelly-qt"):
         # Only claim the app id when its .desktop file exists; otherwise the
         # xdg-desktop-portal registry rejects it with a startup warning.
